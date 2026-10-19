@@ -32,6 +32,7 @@ import litellm
 import openai  # see planner.py: litellm normalizes every provider's errors onto openai's.
 
 from ..config import MAX_ATTEMPTS, MAX_TOKENS, MODEL, REQUEST_TIMEOUT, decode_kwargs_for
+from ..planner.provider_errors import is_transient
 from ..planner.spec_planner import (
     SPEC_TOOL,
     _normalize_spec,
@@ -232,6 +233,8 @@ class TurnAttempt:
     finish_reason: str | None = None
     usage: dict | None = None
     error: str | None = None
+    #: True when `error` is a transient provider failure (see provider_errors).
+    error_transient: bool = False
     latency_s: float = 0.0
     parse_error: str | None = None
 
@@ -300,6 +303,7 @@ def request_turn(
         return TurnAttempt(
             protocol=protocol,
             error=f"{type(e).__name__}: {e}",
+            error_transient=is_transient(e),
             latency_s=time.monotonic() - started,
         )
 

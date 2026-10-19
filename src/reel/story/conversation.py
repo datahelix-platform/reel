@@ -38,7 +38,9 @@ from __future__ import annotations
 import uuid
 
 from .turn import request_turn
-from ..config import MAX_ATTEMPTS, MODEL
+from ..config import MAX_ATTEMPTS, MODEL, TRANSIENT_RETRIES
+from ..planner import provider_errors
+from ..planner.provider_errors import describe_model_error
 
 
 def _new_turn_id() -> str:
@@ -107,19 +109,28 @@ def _request_turn_with_retry(
     docstring, point 2, for why that's never converted into a
     conversational status."""
     last = None
-    for _ in range(MAX_ATTEMPTS):
+    attempts = 0
+    retries = 0
+    while attempts < MAX_ATTEMPTS:
         last = request_turn(
             utterance, capabilities, existing_query_spec=existing_query_spec,
             prior_turns=prior_turns, model=model, context=context, protocol=protocol,
         )
         if last.error:
-            raise RuntimeError(
-                f"Call to model {model or MODEL!r} failed -- check the provider's API key "
-                f"env var is set and the model string is valid for that provider. "
-                f"Original error: {last.error}"
-            )
+            # A transient provider failure (overload, rate limit, 5xx) is retried
+            # with backoff and does NOT spend a parse attempt -- the model never
+            # answered. Anything else is a real system failure, raised at once.
+            if getattr(last, "error_transient", False) and retries < TRANSIENT_RETRIES:
+                retries += 1
+                provider_errors.sleep_before_retry(retries)
+                continue
+            raise RuntimeError(describe_model_error(
+                model or MODEL, last.error,
+                transient=getattr(last, "error_transient", False), retries=retries,
+            ))
         if last.turn is not None:
             return last.turn
+        attempts += 1
 
     detail = last.parse_error or f"content: {(last.raw_content or '')[:400]!r}"
     if last.truncated:

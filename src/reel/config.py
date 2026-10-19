@@ -46,6 +46,19 @@ MAX_TOKENS = int(_env("REEL_MAX_TOKENS", "8192"))
 OLLAMA_NUM_CTX = int(_env("REEL_OLLAMA_NUM_CTX", "32768"))
 
 MAX_ATTEMPTS = int(_env("REEL_MAX_ATTEMPTS", "3"))
+#: Retries for a *transient provider* failure (the provider is overloaded, rate
+#: limiting, or returned a 5xx) -- separate from MAX_ATTEMPTS, which budgets
+#: unparseable model output. Seen live: Bedrock answering
+#: `ServiceUnavailableError: Bedrock is unable to process your request` for a
+#: few minutes at a time, which surfaced to the user as an HTTP 502 on the first
+#: blip. Applied only by the product facades (conversation._request_turn_with_retry,
+#: spec_planner.plan_query_spec), never by request_turn/request_spec themselves,
+#: so the harness keeps seeing raw outcomes. Set to 0 to disable.
+TRANSIENT_RETRIES = int(_env("REEL_TRANSIENT_RETRIES", "3"))
+#: Exponential backoff between transient retries: base * 2**(n-1), capped.
+#: Defaults give 1s, 2s, 4s -- well inside Mosaic's 60s planner timeout.
+RETRY_BACKOFF_S = float(_env("REEL_RETRY_BACKOFF_S", "1.0"))
+RETRY_BACKOFF_MAX_S = float(_env("REEL_RETRY_BACKOFF_MAX_S", "8.0"))
 
 #: A loaded generation on a local model runs for minutes. litellm's default
 #: request timeout cuts it off, and the resulting APIConnectionError is

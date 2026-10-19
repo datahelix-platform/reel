@@ -39,7 +39,11 @@ from dataclasses import dataclass
 import litellm
 import openai  # see planner.py: litellm normalizes every provider's errors onto openai's.
 
-from ..config import MAX_ATTEMPTS, MAX_TOKENS, MODEL, REQUEST_TIMEOUT, decode_kwargs_for
+from ..config import (
+    MAX_ATTEMPTS, MAX_TOKENS, MODEL, REQUEST_TIMEOUT, TRANSIENT_RETRIES, decode_kwargs_for,
+)
+from . import provider_errors
+from .provider_errors import describe_model_error, is_transient
 
 # Mosaic's FilterOp enum, verbatim (mosaic.core.schema_typing.FilterOp). Lowercase, and
 # `is_null` not `isNull` -- QueryPlan's uppercase "EQ"/"IN" spelling is NOT accepted here.
@@ -307,6 +311,8 @@ class SpecAttempt:
     finish_reason: str | None = None
     usage: dict | None = None
     error: str | None = None
+    #: True when `error` is a transient provider failure (see provider_errors).
+    error_transient: bool = False
     latency_s: float = 0.0
     parse_error: str | None = None
 
@@ -374,6 +380,7 @@ def request_spec(
         return SpecAttempt(
             protocol=protocol,
             error=f"{type(e).__name__}: {e}",
+            error_transient=is_transient(e),
             latency_s=time.monotonic() - started,
         )
 
@@ -420,16 +427,23 @@ def plan_query_spec(
     runner, where a retry would conceal the unreliability being measured.
     """
     last = None
-    for _ in range(MAX_ATTEMPTS):
+    attempts = 0
+    retries = 0
+    while attempts < MAX_ATTEMPTS:
         last = request_spec(instruction, capabilities, context=context, protocol=protocol)
         if last.error:
-            raise RuntimeError(
-                f"Call to model {MODEL!r} failed -- check the provider's API key env var is "
-                f"set (see exon/README.md for the convention per provider) and that the model "
-                f"string is valid for that provider. Original error: {last.error}"
-            )
+            # A transient provider failure doesn't spend a parse attempt: the
+            # model never answered, so there is no sampling variance to retry.
+            if last.error_transient and retries < TRANSIENT_RETRIES:
+                retries += 1
+                provider_errors.sleep_before_retry(retries)
+                continue
+            raise RuntimeError(describe_model_error(
+                MODEL, last.error, transient=last.error_transient, retries=retries,
+            ))
         if last.spec is not None:
             return last.spec
+        attempts += 1
 
     detail = last.parse_error or f"content: {(last.raw_content or '')[:400]!r}"
     if last.truncated:

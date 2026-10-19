@@ -41,10 +41,26 @@ class TurnModel(BaseModel):
     message: str
 
 
+class IncomingTurnModel(TurnModel):
+    """A turn as a caller sends it back in ``turns``.
+
+    Wider than ``TurnModel`` by exactly one status: ``error``. Mosaic answers a
+    failed turn with an ``error`` turn (Decision 8) that carries no id, and a
+    chat UI that draws it -- Aperture does, minting a local id for it -- then
+    echoes it back on the next request. An error turn is not a conversational
+    step (nothing was applied, nothing can be rewound to), so the endpoint drops
+    it before planning rather than rejecting the whole request with a 422, which
+    made every retry after one provider hiccup fail until the user cleared the
+    chat. Responses still use ``TurnModel``: Reel itself never emits ``error``.
+    """
+
+    status: Literal["proposal", "clarification", "suspended", "error"]
+
+
 class TurnRequest(BaseModel):
     utterance: str
     query_spec: Optional[dict] = None
-    turns: list[TurnModel] = []
+    turns: list[IncomingTurnModel] = []
     edit_turn_id: Optional[str] = None
 
 
@@ -83,7 +99,8 @@ def create_conversational_app(
 
     @app.post("/turn", response_model=TurnResponse)
     def turn(req: TurnRequest) -> TurnResponse:
-        turns = [t.model_dump() for t in req.turns]
+        # Error turns are display-only on the caller's side; see IncomingTurnModel.
+        turns = [t.model_dump() for t in req.turns if t.status != "error"]
         kw = {"model": model, "protocol": protocol}
 
         if req.edit_turn_id is not None:
