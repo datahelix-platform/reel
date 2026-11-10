@@ -137,3 +137,9 @@ sees a held step only after Mosaic passes the fields through its relay and Graph
 `ConverseResult`, and Aperture's conversational panel (Aperture ADR-0039) renders them with a
 confirm action. Both follow-ups start after the amendment merges.
 
+**As built, Reel side (reel#19):** point 2 is implemented in `edit_turn`
+(`src/reel/story/conversation.py`) and `/turn` (`src/reel/serve/http.py`) per Amendment 1. Held
+turns carry `held_for_review` / `previous_query_spec`, the response carries `changed_turn_ids`,
+and a request that would plan on top of a held turn answers 400. Tests:
+`tests/test_held_for_review.py` (no model calls).
+
