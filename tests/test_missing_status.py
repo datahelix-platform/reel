@@ -18,6 +18,7 @@ Two things change here:
    attempt count and each attempt's ``parse_error``, by both the retry facade
    and the endpoint.
 """
+import hashlib
 import json
 import logging
 from types import SimpleNamespace
@@ -129,9 +130,9 @@ class TestRequestTurnRecordsTheInference:
 PARSE_ERROR = "ValueError: 'status' must be 'proposal' or 'clarification', got 'maybe'"
 
 
-def _unparseable(parse_error=PARSE_ERROR):
+def _unparseable(parse_error=PARSE_ERROR, redacted="ValueError(field='status')"):
     return TurnAttempt(protocol="tool_call", raw_content=None, structured_arguments='{"status": "maybe"}',
-                       finish_reason="tool_calls", parse_error=parse_error)
+                       finish_reason="tool_calls", parse_error=parse_error, parse_error_redacted=redacted)
 
 
 def _proposal(spec, message="ok", inferred=False):
@@ -159,44 +160,93 @@ def client(monkeypatch):
     return tc
 
 
+UTTERANCE = "csf donors"
+UTTERANCE_HASH = hashlib.sha256(UTTERANCE.encode()).hexdigest()[:12]
+
+
 class TestFailedTurnsAreLogged:
-    def test_exhausted_parse_attempts_log_every_parse_error_at_warning(self, client, caplog):
-        client.model.queue += [_unparseable(), _unparseable("ValueError: 'message' is required"), _unparseable()]
+    """Redacted by default (no utterance, no values from the model's output);
+    verbatim with REEL_LOG_UTTERANCES=1."""
+
+    def _fail_three_parses(self, client, caplog):
+        client.model.queue += [
+            _unparseable(),
+            _unparseable("ValueError: 'message' is required", "ValueError(field='message')"),
+            _unparseable(),
+        ]
         with caplog.at_level(logging.WARNING, logger="reel"):
-            r = client.post("/turn", json={"utterance": "csf donors", "query_spec": None, "turns": []})
+            r = client.post("/turn", json={"utterance": UTTERANCE, "query_spec": None, "turns": []})
         assert r.status_code == 502
         assert client.model.calls == 3
-
+        # The 502 body Mosaic relays is unchanged by redaction: it is not a log.
+        assert PARSE_ERROR in r.json()["detail"]
         facade = [rec for rec in caplog.records if rec.name == "reel.story.conversation"]
-        assert len(facade) == 1 and facade[0].levelno == logging.WARNING
-        text = facade[0].getMessage()
-        assert "model='test/model'" in text and "3 attempt(s)" in text
-        assert "attempt 1: parse_error=" + PARSE_ERROR in text
-        assert "attempt 2: parse_error=ValueError: 'message' is required" in text
-        assert "attempt 3: parse_error=" + PARSE_ERROR in text
-
         endpoint = [rec for rec in caplog.records if rec.name == "reel.serve.http"]
+        assert len(facade) == 1 and facade[0].levelno == logging.WARNING
         assert len(endpoint) == 1 and endpoint[0].levelno == logging.WARNING
-        text = endpoint[0].getMessage()
-        assert "502" in text and "utterance='csf donors'" in text and PARSE_ERROR in text
+        return facade[0].getMessage(), endpoint[0].getMessage()
 
-    def test_a_provider_failure_is_logged_too(self, client, caplog):
+    def test_exhausted_parse_attempts_are_logged_redacted_by_default(self, client, caplog, monkeypatch):
+        monkeypatch.delenv("REEL_LOG_UTTERANCES", raising=False)
+        facade, endpoint = self._fail_three_parses(client, caplog)
+
+        assert "model='test/model'" in facade and "3 attempt(s)" in facade
+        assert f"utterance len={len(UTTERANCE)} sha256={UTTERANCE_HASH}" in facade
+        assert "attempt 1: parse_error=ValueError(field='status')" in facade
+        assert "attempt 2: parse_error=ValueError(field='message')" in facade
+        assert "attempt 3: parse_error=ValueError(field='status')" in facade
+
+        assert "502" in endpoint and "(append, 0 prior turn(s))" in endpoint
+        assert "model='test/model'" in endpoint and "3 attempt(s)" in endpoint
+        assert f"utterance len={len(UTTERANCE)} sha256={UTTERANCE_HASH}" in endpoint
+        assert "ValueError(field='status')" in endpoint
+
+        for text in (facade, endpoint):
+            assert UTTERANCE not in text
+            assert "maybe" not in text  # the value the model sent
+            assert PARSE_ERROR not in text
+
+    def test_the_flag_logs_the_utterance_and_full_parse_errors(self, client, caplog, monkeypatch):
+        monkeypatch.setenv("REEL_LOG_UTTERANCES", "1")
+        facade, endpoint = self._fail_three_parses(client, caplog)
+
+        assert "model='test/model'" in facade and "3 attempt(s)" in facade
+        assert f"utterance='{UTTERANCE}'" in facade
+        assert "attempt 1: parse_error=" + PARSE_ERROR in facade
+        assert "attempt 2: parse_error=ValueError: 'message' is required" in facade
+        assert "attempt 3: parse_error=" + PARSE_ERROR in facade
+
+        assert "502" in endpoint and f"utterance='{UTTERANCE}'" in endpoint and PARSE_ERROR in endpoint
+
+    def test_a_provider_failure_is_logged_by_type_by_default(self, client, caplog, monkeypatch):
+        monkeypatch.delenv("REEL_LOG_UTTERANCES", raising=False)
         client.model.queue.append(TurnAttempt(protocol="tool_call", error="AuthenticationError: bad creds"))
         with caplog.at_level(logging.WARNING, logger="reel"):
             r = client.post("/turn", json={"utterance": "x", "query_spec": None, "turns": []})
         assert r.status_code == 502
-        names = {rec.name for rec in caplog.records if rec.levelno == logging.WARNING}
-        assert names == {"reel.story.conversation", "reel.serve.http"}
+        warnings = [rec for rec in caplog.records if rec.levelno == logging.WARNING]
+        assert {rec.name for rec in warnings} == {"reel.story.conversation", "reel.serve.http"}
+        assert all("AuthenticationError" in rec.getMessage() for rec in warnings)
+        assert not any("bad creds" in rec.getMessage() for rec in warnings)
+
+    def test_a_provider_failure_is_logged_in_full_with_the_flag(self, client, caplog, monkeypatch):
+        monkeypatch.setenv("REEL_LOG_UTTERANCES", "1")
+        client.model.queue.append(TurnAttempt(protocol="tool_call", error="AuthenticationError: bad creds"))
+        with caplog.at_level(logging.WARNING, logger="reel"):
+            r = client.post("/turn", json={"utterance": "x", "query_spec": None, "turns": []})
+        assert r.status_code == 502
         assert any("AuthenticationError: bad creds" in rec.getMessage() for rec in caplog.records)
 
-    def test_a_failed_edit_is_logged_as_an_edit(self, client, caplog):
+    def test_a_failed_edit_is_logged_as_an_edit_with_its_turn_id(self, client, caplog, monkeypatch):
+        monkeypatch.delenv("REEL_LOG_UTTERANCES", raising=False)
         history = [{"id": "t1", "utterance": "first", "status": "proposal", "message": "ok", "query_spec": SPEC_A}]
         client.model.queue += [_unparseable() for _ in range(3)]
         with caplog.at_level(logging.WARNING, logger="reel.serve.http"):
             r = client.post("/turn", json={"utterance": "revised", "query_spec": SPEC_A, "turns": history, "edit_turn_id": "t1"})
         assert r.status_code == 502
         (rec,) = [rec for rec in caplog.records if rec.name == "reel.serve.http"]
-        assert "(edit, 1 prior turn(s))" in rec.getMessage()
+        assert "(edit, turn_id='t1', 1 prior turn(s))" in rec.getMessage()
+        assert "revised" not in rec.getMessage()
 
     def test_a_successful_turn_logs_no_warning(self, client, caplog):
         client.model.queue.append(_proposal(SPEC_A))
@@ -229,3 +279,40 @@ class TestRetryFacadeDirectly:
         monkeypatch.setattr("reel.story.conversation.request_turn", model)
         with pytest.raises(RuntimeError, match="2 attempt\\(s\\) -- " + PARSE_ERROR.replace("(", "\\(")):
             _request_turn_with_retry("x", CAPS, existing_query_spec=None, prior_turns=())
+
+
+class TestRedactedParseErrors:
+    """reel.redact names the rejected key, never a value."""
+
+    def test_a_status_error_names_the_field_not_the_value(self):
+        from reel.redact import redact_parse_error
+        with pytest.raises(ValueError) as e:
+            _normalize_turn({"status": "maybe", "message": "ok", "query_spec": SPEC_A})
+        assert redact_parse_error(e.value) == "ValueError(field='status')"
+
+    def test_a_value_after_equals_is_not_taken_for_the_field(self):
+        from reel.redact import redact_parse_error
+        with pytest.raises(ValueError) as e:
+            _normalize_turn({"status": "proposal", "message": "ok"})
+        assert redact_parse_error(e.value) == "ValueError(field='query_spec')"
+
+    def test_an_identifier_shaped_value_that_is_no_schema_key_is_dropped(self):
+        from reel.redact import redact_parse_error
+        assert redact_parse_error(ValueError("got 'csf_donors' here")) == "ValueError"
+        assert redact_parse_error(KeyError("csf_donors")) == "KeyError"
+
+    def test_a_key_error_names_its_key(self):
+        from reel.redact import redact_parse_error
+        assert redact_parse_error(KeyError("anchor")) == "KeyError(field='anchor')"
+
+    def test_a_json_error_is_its_type_only(self):
+        from reel.redact import redact_parse_error
+        with pytest.raises(json.JSONDecodeError) as e:
+            json.loads("{not json")
+        assert redact_parse_error(e.value) == "JSONDecodeError"
+
+    def test_request_turn_records_the_redacted_form(self, monkeypatch):
+        monkeypatch.setattr(turn_module.litellm, "completion",
+                            lambda **kw: _tool_call_response({"status": "maybe", "message": "ok"}))
+        attempt = request_turn("a=1", CAPS, model="test/model")
+        assert attempt.parse_error_redacted == "ValueError(field='status')"

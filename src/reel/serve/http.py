@@ -31,6 +31,8 @@ from typing import Literal, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from ..config import MODEL
+from ..redact import describe_utterance, log_full_text
 from ..story.conversation import _current_query_spec, append_turn, edit_turn
 
 #: Why this endpoint answered 5xx, in Reel's own log. Mosaic relays the body of a
@@ -127,7 +129,7 @@ def create_conversational_app(
                 # responsible for turning an unreachable/failing Exon into
                 # its own discriminated "error" turn status (Decision 8) --
                 # from here, a loud transport-level failure is correct.
-                _log_turn_failure("edit", req, exc)
+                _log_turn_failure("edit", req, exc, model)
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
             return TurnResponse(
                 turn=TurnModel(**redone),
@@ -159,7 +161,7 @@ def create_conversational_app(
         try:
             new_turns, new_turn = append_turn(turns, req.utterance, capabilities, **kw)
         except RuntimeError as exc:
-            _log_turn_failure("append", req, exc)
+            _log_turn_failure("append", req, exc, model)
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         return TurnResponse(
             turn=TurnModel(**new_turn),
@@ -170,14 +172,23 @@ def create_conversational_app(
     return app
 
 
-def _log_turn_failure(kind: str, req: TurnRequest, exc: RuntimeError) -> None:
-    """One WARNING per 502, naming the utterance and the cause. The per-attempt
-    breakdown (each attempt's parse_error) is logged where the attempts were
-    made, in conversation._request_turn_with_retry; this line is the
-    endpoint-level summary a reader greps for first."""
+def _log_turn_failure(kind: str, req: TurnRequest, exc: RuntimeError, model: str | None) -> None:
+    """One WARNING per 502: the endpoint-level summary a reader greps for first.
+    The per-attempt breakdown is logged where the attempts were made, in
+    conversation._request_turn_with_retry.
+
+    Redacted by default (see reel.redact): the turn id, request kind, prior-turn
+    count, the utterance's length and hash, the model and the redacted cause --
+    never the utterance or a value from the model's output. REEL_LOG_UTTERANCES=1
+    logs the utterance and the full cause instead."""
+    if log_full_text():
+        cause = str(exc)
+    else:
+        cause = getattr(exc, "log_cause", None) or type(exc).__name__
+    turn = f"turn_id={req.edit_turn_id!r}, " if req.edit_turn_id is not None else ""
     log.warning(
-        "POST /turn (%s, %d prior turn(s)) -> 502: utterance=%r -- %s",
-        kind, len(req.turns), req.utterance[:200], exc,
+        "POST /turn (%s, %s%d prior turn(s)) -> 502: model=%r %s -- %s",
+        kind, turn, len(req.turns), model or MODEL, describe_utterance(req.utterance), cause,
     )
 
 

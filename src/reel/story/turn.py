@@ -33,6 +33,7 @@ import openai  # see planner.py: litellm normalizes every provider's errors onto
 
 from ..config import MAX_ATTEMPTS, MAX_TOKENS, MODEL, REQUEST_TIMEOUT, decode_kwargs_for
 from ..planner.provider_errors import is_transient
+from ..redact import redact_parse_error
 from ..planner.spec_planner import (
     SPEC_TOOL,
     _normalize_spec,
@@ -237,6 +238,10 @@ class TurnAttempt:
     error_transient: bool = False
     latency_s: float = 0.0
     parse_error: str | None = None
+    #: `parse_error` without values: the exception type and the key it names,
+    #: e.g. ``ValueError(field='status')``. What the failure log shows unless
+    #: REEL_LOG_UTTERANCES=1 (see reel.redact).
+    parse_error_redacted: str | None = None
     #: True when the model omitted `status` and `_normalize_turn` inferred it from
     #: the payload (reel#10/#11). Recorded so an eval can still count the omission
     #: as a model defect even though the turn was accepted.
@@ -338,6 +343,7 @@ def request_turn(
             attempt.status_inferred = status_was_omitted(raw)
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             attempt.parse_error = f"{type(e).__name__}: {e}"
+            attempt.parse_error_redacted = redact_parse_error(e)
     return attempt
 
 

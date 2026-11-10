@@ -42,10 +42,12 @@ from .turn import request_turn
 from ..config import MAX_ATTEMPTS, MODEL, TRANSIENT_RETRIES
 from ..planner import provider_errors
 from ..planner.provider_errors import describe_model_error
+from ..redact import describe_utterance, log_full_text, redact_provider_error, text_fingerprint
 
 #: Reel's own account of why a turn failed. Before this logger existed the cause
 #: of a 502 was recorded only in Mosaic's log (as the body it relayed), so Reel's
-#: container log could not explain its own failures (reel#11).
+#: container log could not explain its own failures (reel#11). Redacted by default:
+#: no utterance text and no values from the model's output (see reel.redact).
 log = logging.getLogger("reel.story.conversation")
 
 
@@ -135,11 +137,12 @@ def _request_turn_with_retry(
                 model or MODEL, last.error,
                 transient=getattr(last, "error_transient", False), retries=retries,
             )
-            log.warning(
-                "turn failed: model=%r provider error after %d transient retr%s -- %s",
-                model or MODEL, retries, "y" if retries == 1 else "ies", last.error,
+            cause = (
+                f"provider error after {retries} transient retr{'y' if retries == 1 else 'ies'}: "
+                + (last.error if log_full_text() else redact_provider_error(last.error))
             )
-            raise RuntimeError(message)
+            log.warning("turn failed: model=%r %s; %s", model or MODEL, describe_utterance(utterance), cause)
+            raise TurnFailure(message, log_cause=cause)
         if last.turn is not None:
             if getattr(last, "status_inferred", False):
                 log.info(
@@ -153,25 +156,43 @@ def _request_turn_with_retry(
     detail = last.parse_error or f"content: {(last.raw_content or '')[:400]!r}"
     if last.truncated:
         detail = f"response truncated (finish_reason=length) before producing a turn; {detail}"
+    breakdown = "; ".join(_describe_failed_attempt(i, a) for i, a in enumerate(failed, 1))
     log.warning(
-        "turn failed: model=%r produced no usable turn in %d attempt(s); %s",
-        model or MODEL, MAX_ATTEMPTS, "; ".join(_describe_failed_attempt(i, a) for i, a in enumerate(failed, 1)),
+        "turn failed: model=%r %s; produced no usable turn in %d attempt(s); %s",
+        model or MODEL, describe_utterance(utterance), MAX_ATTEMPTS, breakdown,
     )
-    raise RuntimeError(
-        f"Model {model or MODEL!r} produced no usable turn in {MAX_ATTEMPTS} attempt(s) -- {detail}"
+    raise TurnFailure(
+        f"Model {model or MODEL!r} produced no usable turn in {MAX_ATTEMPTS} attempt(s) -- {detail}",
+        log_cause=f"no usable turn in {MAX_ATTEMPTS} attempt(s); last {_describe_failed_attempt(None, last)}",
     )
 
 
-def _describe_failed_attempt(n: int, attempt) -> str:
+class TurnFailure(RuntimeError):
+    """A turn the facade gave up on. ``str(exc)`` is the full cause -- the 502
+    body Mosaic relays, unchanged; ``log_cause`` is the same cause as Reel's own
+    log may show it (redacted unless REEL_LOG_UTTERANCES=1, see reel.redact), so
+    the endpoint's summary line never re-introduces what this module left out.
+    A RuntimeError, so every existing ``except RuntimeError`` still applies."""
+
+    def __init__(self, message: str, *, log_cause: str):
+        super().__init__(message)
+        self.log_cause = log_cause
+
+
+def _describe_failed_attempt(n, attempt) -> str:
     """One attempt's failure, for the log: what the parser said, or what the
-    model returned when it never reached the parser."""
+    model returned when it never reached the parser. Values from the model's
+    output appear only with REEL_LOG_UTTERANCES=1."""
+    full = log_full_text()
     if attempt.parse_error:
-        why = f"parse_error={attempt.parse_error}"
+        why = f"parse_error={attempt.parse_error if full else attempt.parse_error_redacted}"
     elif attempt.truncated:
         why = "response truncated (finish_reason=length) before producing a turn"
-    else:
+    elif full:
         why = f"no tool call; content={(attempt.raw_content or '')[:200]!r}"
-    return f"attempt {n}: {why}"
+    else:
+        why = f"no tool call; content {text_fingerprint(attempt.raw_content)}"
+    return why if n is None else f"attempt {n}: {why}"
 
 
 _UNSET = object()  # distinguishes "no override given" from an explicit None
