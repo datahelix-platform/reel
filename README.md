@@ -10,14 +10,24 @@ its own** (Mosaic's MCP boundary does): Reel plans and composes.
 
 ## Status
 
-**Design, refreshed 2026-09-11.** This repo carries design only; there is no Reel code yet. But
-Reel's rung-1 prototype **is running** under another name: **Exon**, in
-[`BU-Neuromics/mosaic-demo-small`](https://github.com/BU-Neuromics/mosaic-demo-small) (`exon/`) —
-a schema-grounded NL → QuerySpec planner with a reliability harness, and a conversational turn
-contract written in Reel's vocabulary so it can migrate here. That migration is decided in
-principle ([ADR-0008](design/decisions/ADR-0008-exon-seeds-reel.md), `Proposed`) and prepared in
-[`proposals/exon-migration.md`](proposals/exon-migration.md); it has **not** started, and
-`mosaic-demo-small` is untouched until its preconditions hold.
+**Code: `datahelix-reel` v0.1.0.** `src/reel/` carries the turn path migrated from the **Exon**
+prototype ([`BU-Neuromics/mosaic-demo-small`](https://github.com/BU-Neuromics/mosaic-demo-small),
+`exon/`) per [ADR-0008](design/decisions/ADR-0008-exon-seeds-reel.md) — Phase B-runtime of
+[`proposals/exon-migration.md`](proposals/exon-migration.md):
+
+- `reel.planner` — the schema-grounded NL → QuerySpec planner and its MCP client onto Mosaic's
+  boundary (which validates and executes; Reel does neither — ADR-0007);
+- `reel.story` — one conversational turn, and the turn list with rewind/edit
+  (recompute-and-suspend, ADR-0004);
+- `reel.serve` — the HTTP turn endpoint Mosaic's validating relay calls (Mosaic ADR-0010).
+
+Not yet built: the reliability harness (Phase B-harness), persisted `DataStory`s, as-of
+watermarks, instruction source tags and op expansion (migration deltas D1–D5), and View
+Contract output.
+
+**Design:** all eight ADRs are `Accepted` — ADR-0001–0005 were ratified (three of them amended
+to their v1 forms) in the 2026-11-10 decision pass; see the Decision Log in
+[`design/INDEX.md`](design/INDEX.md).
 
 Reel was split out of **Aperture** on 2026-06-22 so the config-driven portal could ship as the
 rendering MVP while the AI-native engine matures on its own cadence. The boundary decision and
@@ -44,11 +54,11 @@ the joining interface live in the DataHelix platform repo:
 
 | | |
 |---|---|
-| **Platform repo** | [`datahelix-platform/datahelix`](https://github.com/datahelix-platform/datahelix) — Reel is **not yet mounted** there as a submodule (Mosaic and Aperture are); mounting is follow-on work named in platform ADR-0003 and this repo's runbook. |
+| **Platform repo** | [`datahelix-platform/datahelix`](https://github.com/datahelix-platform/datahelix) — Reel is mounted there as the `reel/` submodule, alongside Mosaic and Aperture. |
 | **Domain graph runtime** | **Mosaic** (formerly Hippo, Mosaic ADR-0004) — [`datahelix-platform/mosaic`](https://github.com/datahelix-platform/mosaic). Hosts the MCP boundary (Mosaic ADR-0009) that validates/executes QuerySpecs and the validating relay (ADR-0010) that drives a planner such as Exon/Reel. Data-contract identifiers (`hippoSchema`, `hippo_core`) keep their historical spelling. |
 | **Query artifact** | **QuerySpec** — Aperture ADR-0035 defines it; Mosaic ADR-0009 validates it; Reel composes instances (ADR-0006). |
 | **Renderer** | **Aperture** — [`datahelix-platform/aperture`](https://github.com/datahelix-platform/aperture), the config-driven portal (React + Vite SPA); consumes View Contract instances; reaches a planner only through Mosaic. |
-| **Packaging (planned)** | `datahelix-reel` distribution, `import reel`, `src/reel/` (platform ADR-0002). |
+| **Packaging** | `datahelix-reel` distribution, `import reel`, `src/reel/` (platform ADR-0002). |
 
 Reel is **headless** and **generic** (no domain nouns): the domain schema is the deployment's
 LinkML, hosted in Mosaic.

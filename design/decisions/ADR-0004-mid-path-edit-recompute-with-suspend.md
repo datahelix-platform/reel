@@ -1,8 +1,9 @@
 # ADR-0004: Mid-path edits recompute downstream and suspend-on-invalid (not discard)
 
-- **Status:** Proposed
-- **Date:** 2026-06-17 (migrated to Reel 2026-06-22)
-- **Deciders:** labadorf, design session
+- **Status:** Accepted (amended at ratification — see *Amendment and ratification (2026-11-10)*)
+- **Date:** 2026-11-10 (proposed 2026-06-17; migrated to Reel 2026-06-22)
+- **Deciders:** labadorf (decision pass 2026-11-10); originally labadorf, design session
+- **Tracking issue:** [reel#19](https://github.com/datahelix-platform/reel/issues/19) (implement the flag)
 - **Related:** ADR-0001 (instruction-path model), ADR-0002 (as-of watermark), Aperture ADR-0009 (dry-run validation), Aperture ADR-0020 (provenance events); `instruction-path-model.md` §6
 
 > **Migrated from Aperture ADR-0025 (2026-06-22)** on the data-story-engine split
@@ -82,3 +83,46 @@ Edits operate at two layers, mirroring the "pull new data" discipline (ADR-0002)
   conversation persistence — the transcript lives in the caller). Persisting edit provenance is a
   migration delta (`../../proposals/exon-migration.md` delta D3), pending Aperture ADR-0020's
   provenance-event model (still `Deferred (MVP)` in Aperture).
+
+### Amendment and ratification (2026-11-10) — the v1 rule is re-ask + flag + suspend
+
+Amended, then accepted, by labadorf in the 2026-11-10 decision pass. The Decision above assumes
+something v1 does not have: **deterministic replay of typed ops against a fixed watermark**. A v1
+turn carries no op expansion (migration deltas D4/D5) and no watermark (ADR-0002, delta D2) —
+only its utterance and the resulting full QuerySpec. So recompute in v1 cannot replay ops; it can
+only ask the planner again. The v1 rule:
+
+1. **Re-ask.** On an upstream edit, each downstream step's **original utterance is re-asked**
+   against the new state (the edited draft plus the recomputed turns before it) — as
+   `src/reel/story/conversation.py` `edit_turn` does today.
+2. **Flag changed specs.** Any downstream step whose resulting QuerySpec **differs from its
+   QuerySpec before the edit** is **flagged for the user to review**, not silently applied. A
+   step that re-plans to the same QuerySpec is carried without a flag.
+3. **Suspend on clarification.** A downstream step whose re-ask comes back as a blocking
+   clarification is **suspended** (existing behaviour: `status: "suspended"`, the model's
+   question as the re-prompt, every later step cascades to suspended without further model
+   calls). A clarification that *answered* a schema-discovery question (`resolution:
+   "answered"`) does not suspend — also existing behaviour.
+
+**Target, unchanged:** deterministic typed-op replay against the as-of watermark, per the
+Decision above, once the op deltas (D4/D5) and the watermark (D2) exist. At that point recompute
+stops being a model call and flagging narrows to genuine validity changes.
+
+**The trust trade-off.** This ADR originally rejected "recompute and silently auto-repair broken
+downstream steps (re-elaborate their NL)" because it hides correctness changes. Re-asking the
+original utterance *is* re-elaboration — the planner may read the same words differently against
+the new state, and an LLM may not answer identically even when the edit should not have affected
+a step. v1 accepts re-elaboration because there is nothing else to replay, and buys back the
+trust property with the flag: **no downstream QuerySpec changes without the user seeing it.**
+The costs: (a) review noise — a nondeterministic re-plan can flag a step whose meaning did not
+change (spurious differences in an equivalent spec, or genuine drift); (b) the user carries the
+burden of judging each flagged step; (c) a re-plan that is *wrong but identical* to the old spec
+is, correctly, not flagged — the flag detects change, not correctness. Suspend-on-clarification
+still catches the steps the planner itself cannot resolve.
+
+**As built** (verified against `src/reel/story/conversation.py` and `src/reel/serve/http.py` at
+commit `1b050e6`): points 1 and 3 are implemented; the HTTP response returns `turn`,
+`suspended_turn_ids` and the full recomputed `turns`. **Point 2 is not**: a recomputed proposal
+replaces the old turn with no comparison and no flag. Tracked in [reel#19](https://github.com/datahelix-platform/reel/issues/19). The append-only
+edit-history log (Decision, second layer) remains unbuilt (delta D3).
+
