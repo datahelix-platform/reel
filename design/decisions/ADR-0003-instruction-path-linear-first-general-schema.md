@@ -1,8 +1,8 @@
 # ADR-0003: Instruction-path topology — general schema now, linear-only validator in v1
 
-- **Status:** Proposed
-- **Date:** 2026-06-17 (migrated to Reel 2026-06-22)
-- **Deciders:** labadorf, design session
+- **Status:** Accepted
+- **Date:** 2026-11-10 (proposed 2026-06-17; migrated to Reel 2026-06-22)
+- **Deciders:** labadorf (decision pass 2026-11-10); originally labadorf, design session
 - **Related:** ADR-0001 (instruction-path model), Aperture ADR-0009 (dry-run validation), Aperture ADR-0021 (defer in-app chat; linear MVP first); `instruction-path-model.md` §4, §7
 
 > **Migrated from Aperture ADR-0024 (2026-06-22)** on the data-story-engine split
@@ -81,3 +81,17 @@ mode** (set-op convergence only, no freeform branching) → **(3) full DAG story
   general schema (list-of-parents, ≤1 enforced) is a **migration delta** the translation layer
   owns (Reel [ADR-0008](./ADR-0008-exon-seeds-reel.md); `../../proposals/exon-migration.md`
   delta D1) — exactly the "general schema now, narrow validator now" rule this ADR sets.
+
+### Ratification (2026-11-10) — Accepted
+
+Ratified as written by labadorf in the 2026-11-10 decision pass: general `parents`-list schema,
+linear-only (`len(parents) ≤ 1`, single child) in v1.
+
+**As built** (verified against `src/reel/story/conversation.py` at commit `1b050e6`): the code
+stores an **ordered `turns` list with no `parents` field** — the single parent is implicit in
+list position (`edit_turn` rewinds by slicing `turns[:idx]`). So v1 is physically linear, as
+this ADR requires, but the general schema is **not yet adopted**; persisting
+`instructions[].parents` and projecting it to the wire `turns` list is migration delta **D1**
+(`../../proposals/exon-migration.md`). The "never a data migration" consequence therefore holds
+from D1 onward — nothing is persisted today, so there is nothing to migrate.
+
