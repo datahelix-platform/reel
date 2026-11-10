@@ -53,6 +53,16 @@ the joining interface live in the DataHelix platform repo:
 Reel is **headless** and **generic** (no domain nouns): the domain schema is the deployment's
 LinkML, hosted in Mosaic.
 
+## Configuration
+
+The turn service reads its settings from `REEL_*` environment variables; the planner's model,
+token and retry settings are documented where they are read, in
+[`src/reel/config.py`](src/reel/config.py). Logging:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `REEL_LOG_UTTERANCES` | unset | Reel's WARNING lines for a failed turn are **redacted by default**: they name the turn id (for an edit), the request kind, the prior-turn count, the utterance's length and a short hash (first 12 hex of its sha256), the model, the attempt count, and for each parse error only the exception type and the field it names, never a value. Set to `1` to log the full utterance and the full parse and provider errors instead, for debugging on a deployment whose log you control. The 502 response body is not affected. |
+
 ## Conventions
 
 Decisions are **ADRs** in `design/decisions/`, indexed by the Decision Log in `design/INDEX.md`,

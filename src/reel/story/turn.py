@@ -33,6 +33,7 @@ import openai  # see planner.py: litellm normalizes every provider's errors onto
 
 from ..config import MAX_ATTEMPTS, MAX_TOKENS, MODEL, REQUEST_TIMEOUT, decode_kwargs_for
 from ..planner.provider_errors import is_transient
+from ..redact import redact_parse_error
 from ..planner.spec_planner import (
     SPEC_TOOL,
     _normalize_spec,
@@ -237,6 +238,14 @@ class TurnAttempt:
     error_transient: bool = False
     latency_s: float = 0.0
     parse_error: str | None = None
+    #: `parse_error` without values: the exception type and the key it names,
+    #: e.g. ``ValueError(field='status')``. What the failure log shows unless
+    #: REEL_LOG_UTTERANCES=1 (see reel.redact).
+    parse_error_redacted: str | None = None
+    #: True when the model omitted `status` and `_normalize_turn` inferred it from
+    #: the payload (reel#10/#11). Recorded so an eval can still count the omission
+    #: as a model defect even though the turn was accepted.
+    status_inferred: bool = False
 
     @property
     def truncated(self) -> bool:
@@ -329,10 +338,43 @@ def request_turn(
 
     if payload:
         try:
-            attempt.turn = _normalize_turn(json.loads(payload))
+            raw = json.loads(payload)
+            attempt.turn = _normalize_turn(raw)
+            attempt.status_inferred = status_was_omitted(raw)
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             attempt.parse_error = f"{type(e).__name__}: {e}"
+            attempt.parse_error_redacted = redact_parse_error(e)
     return attempt
+
+
+def status_was_omitted(raw) -> bool:
+    """Whether `_normalize_turn` had to infer `status` for this payload."""
+    return isinstance(raw, dict) and raw.get("status") is None
+
+
+def _infer_status(raw: dict) -> str:
+    """The status a payload with no `status` key unambiguously means.
+
+    Seen live (reel#11): Sonnet and Haiku sometimes return a turn whose
+    `query_spec` is correct but which omits `status` -- on one eval case in 3 of 3
+    runs, so the identical-prompt retry never recovered and the user lost a turn
+    the model had actually answered. The payload itself settles it: a proposal is
+    the only turn that carries a `query_spec` object, and a clarification is the
+    only turn that carries none. Inference stops exactly where ambiguity starts
+    -- a `query_spec` that is present but not an object says nothing about what
+    the model meant, so that stays a parse failure.
+    """
+    qs = raw.get("query_spec")
+    if isinstance(qs, dict):
+        return "proposal"
+    message = raw.get("message")
+    if qs is None and isinstance(message, str) and message:
+        return "clarification"
+    raise ValueError(
+        "'status' is missing and cannot be inferred: a proposal carries a 'query_spec' "
+        f"object and a clarification carries a non-empty 'message', got query_spec="
+        f"{type(qs).__name__ if qs is not None else None} message={message!r}"
+    )
 
 
 def _normalize_turn(raw: dict) -> dict:
@@ -347,11 +389,18 @@ def _normalize_turn(raw: dict) -> dict:
     'clarification' carrying a query_spec anyway. Silently dropping that
     query_spec would hide exactly the kind of half-confident, half-unsure
     output this design exists to surface rather than paper over.
+
+    A MISSING `status` (absent or null) is a shape ambiguity, not a
+    contradiction, and is inferred from the payload -- see `_infer_status`.
+    A `status` that is present but not one of the two legal values is still
+    rejected: the model said something, and it was wrong.
     """
     if not isinstance(raw, dict):
         raise TypeError(f"expected a JSON object, got {type(raw).__name__}")
 
     status = raw.get("status")
+    if status is None:
+        status = _infer_status(raw)
     if status not in ("proposal", "clarification"):
         raise ValueError(f"'status' must be 'proposal' or 'clarification', got {status!r}")
 
