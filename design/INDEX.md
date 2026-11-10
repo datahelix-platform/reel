@@ -31,6 +31,7 @@ with data-contract identifiers (`hippoSchema`, `hippo_core`) unchanged.
 | `decisions/` | **Design decisions (ADRs)** | 🟢 Canonical | The source of truth for *what was decided and why*. See `decisions/README.md`; the Decision Log below is the index. |
 | `vision.md` | North-star vision / charter | 🔵 Vision | Reel as the headless AI-native data-story engine; the instruction-path core; the keystone probe (now run, as Exon); what stays out (rendering, the View Contract, query validation/execution, domain nouns). |
 | `platform-alignment.md` | **Reel ↔ platform crosswalk** | 🟢 Reference | Every claim/dependency in the older docs mapped to the current platform state: names, ADR statuses, the interfaces `prefab/` asked for (all now exist), the keystone-probe results, roadmap position, stale references in sibling repos. **Read this first if you last read Reel before 2026-09.** |
+| `turn-contract.md` | **Conversational turn contract** (v1 wire form of `Instruction`) | 🟢 Canonical | The `/turn` request/response that Mosaic's relay carries. Restates `mosaic-demo-small` `add-exon-conversational-contract` Decision 8 as shipped; amendments land here (ADR-0008 §3; Mosaic ADR-0010 item 7). Amendment 1 (2026-11-10): steps changed by an upstream edit are **held for review** (`held_for_review`, `previous_query_spec`, `changed_turn_ids`). |
 | `instruction-path-model.md` | Instruction-path model (working) | 🟠 Working | The formal data structure under `prefab/data-stories.md`: a data story as a path of source-tagged typed instructions producing intensional subgraph **states** + materialized **artifacts**. Topology as a data property; one as-of watermark; UI modes as topology slices. §9's "new platform requirement" is now Mosaic ADR-0001 (Accepted). v1 `State` = `QuerySpec` (ADR-0006). |
 | `prefab/data-stories.md` | Keystone MVP (working) | 🟠 Working | The simplest concrete realization: a conversational exploration of the Mosaic domain graph. DS-2/DS-3 resolved; the probe has run (Exon). |
 | `../proposals/exon-migration.md` | **Exon → Reel migration runbook** | 🟡 Preparation | Current state of Exon, preconditions, phases (A: prepare landing site — *current*; B: build seed; C: relay cutover; D: mount in DataHelix), the translation deltas D1–D5, inherited backlog. Authorized by ADR-0008. |
@@ -62,9 +63,10 @@ ADR-NNNN**, **platform ADR-NNNN**); see `decisions/README.md` for the numbering 
 
 No Reel ADR is `Proposed` after the 2026-11-10 decision pass. Open follow-on work, not decisions:
 
-1. **Implement ADR-0004's flag** — [reel#19](https://github.com/datahelix-platform/reel/issues/19)
-   (Reel side); the field then needs a pass-through in Mosaic's relay / GraphQL `ConverseResult`
-   and a surface in Aperture's chat panel.
+1. **Implement ADR-0004's hold for review**: the contract is `turn-contract.md` Amendment 1;
+   the Reel side is [reel#19](https://github.com/datahelix-platform/reel/issues/19). The fields
+   then need a pass-through in Mosaic's relay and GraphQL `ConverseResult`, and a review surface in
+   Aperture's chat panel.
 2. **Lift ADR-0002's v1 limit** — a Mosaic change (`asOf` combined with `RelatedCondition`, the
    temporal join of Mosaic ADR-0001) — [mosaic#269](https://github.com/datahelix-platform/mosaic/issues/269). Reel cannot do this itself.
 3. **Migration deltas D1–D5** (`../proposals/exon-migration.md`) — persisted `DataStory` with
