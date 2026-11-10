@@ -35,6 +35,7 @@ reinterpret them against once the chain of drafts breaks.
 """
 from __future__ import annotations
 
+import json
 import uuid
 
 from .turn import request_turn
@@ -56,6 +57,69 @@ def _current_query_spec(turns: list[dict]) -> dict | None:
         if turn["status"] == "proposal":
             return turn["query_spec"]
     return None
+
+
+def _effective_spec(turn: dict) -> dict | None:
+    """What a step contributes to the draft: its spec if it is a proposal,
+    otherwise nothing (a clarification or a suspended turn changes no state)."""
+    return turn.get("query_spec") if turn.get("status") == "proposal" else None
+
+
+def _accepted_spec(turn: dict) -> dict | None:
+    """The spec the user last accepted for this step -- the baseline a recompute
+    is compared with (turn contract, Amendment 1). For a step that is already
+    held, that is its `previous_query_spec`, not the spec it is waiting on:
+    a held spec was never confirmed, so a re-hold must still show the user the
+    difference from what they actually accepted."""
+    if turn.get("held_for_review"):
+        return turn.get("previous_query_spec")
+    return _effective_spec(turn)
+
+
+def _canonical(value):
+    """`value` with every `criteria` list put in a stable order, recursively, so
+    two specs that differ only in the order of their criteria compare equal.
+    Criteria combine under `mode` (AND/OR), neither of which is order-sensitive.
+    Not a QuerySpec model -- it knows one key and nothing else."""
+    if isinstance(value, dict):
+        out = {k: _canonical(v) for k, v in value.items()}
+        if isinstance(out.get("criteria"), list):
+            out["criteria"] = sorted(out["criteria"], key=lambda c: json.dumps(c, sort_keys=True, default=str))
+        return out
+    if isinstance(value, list):
+        return [_canonical(v) for v in value]
+    return value
+
+
+def specs_equal(a: dict | None, b: dict | None) -> bool:
+    """Whether two (normalized) QuerySpecs mean the same, ignoring criteria order."""
+    if a is None or b is None:
+        return a is b
+    return _canonical(a) == _canonical(b)
+
+
+def held_turn_ids(turns: list[dict]) -> list[str]:
+    """Ids of the turns held for review, in conversation order -- the response's
+    `changed_turn_ids` (turn contract, Amendment 1)."""
+    return [t["id"] for t in turns if t.get("held_for_review")]
+
+
+class HeldTurnInBase(ValueError):
+    """A request asked Reel to plan on top of a turn still held for review.
+
+    Planning past it would apply a spec the user has not confirmed. The caller
+    confirms it (drops the hold in its own copy) or edits it first (turn
+    contract, Amendment 1, rule 5). A ValueError, so the endpoint's existing
+    400 handling covers it."""
+
+
+def _reject_held_base(base: list[dict]) -> None:
+    held = held_turn_ids(base)
+    if held:
+        raise HeldTurnInBase(
+            f"turn {held[0]!r} is held for review: confirm it or edit it before "
+            "planning a turn after it"
+        )
 
 
 def _prior_turns_view(turns: list[dict]) -> tuple:
@@ -160,6 +224,7 @@ def append_turn(
     the *current* moment was never the right input for."""
     if existing_query_spec is _UNSET:
         existing_query_spec = _current_query_spec(turns)
+    _reject_held_base(turns)
     result = _request_turn_with_retry(
         utterance, capabilities,
         existing_query_spec=existing_query_spec,
@@ -180,9 +245,15 @@ def edit_turn(
     conversational slot, new content) -- everything after it is a NEW
     Turn object even when unchanged in content, since its position in a
     freshly-built list is what `turns` fully replaces here.
+
+    A recomputed turn whose spec differs from the one the user accepted
+    comes back with `held_for_review: True` and `previous_query_spec` (turn
+    contract Amendment 1; `held_turn_ids` lists them). Raises
+    `HeldTurnInBase` if a turn before the edited one is still held.
     """
     idx = _find_turn_index(turns, edit_turn_id)
     base = turns[:idx]
+    _reject_held_base(base)
 
     result = _request_turn_with_retry(
         new_utterance, capabilities,
@@ -224,6 +295,17 @@ def edit_turn(
             suspended_ids.append(old["id"])
             cascading = True
         else:
-            new_turns.append({"id": old["id"], "utterance": old["utterance"], **recompute})
+            new_turn = {"id": old["id"], "utterance": old["utterance"], **recompute}
+            # ADR-0004 point 2 / turn contract Amendment 1: a step whose meaning
+            # changed is HELD FOR REVIEW -- returned, not applied. Later steps are
+            # still re-asked against its new spec (as if confirmed) and held in
+            # turn if they changed; the caller's applied draft stops at the first
+            # held turn. A step that matches what the user accepted is carried
+            # without a hold, which also clears a hold left by an earlier edit.
+            accepted = _accepted_spec(old)
+            if not specs_equal(_effective_spec(new_turn), accepted):
+                new_turn["held_for_review"] = True
+                new_turn["previous_query_spec"] = accepted
+            new_turns.append(new_turn)
 
     return new_turns, redone, suspended_ids

@@ -30,7 +30,14 @@ from typing import Literal, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from ..story.conversation import _current_query_spec, append_turn, edit_turn
+from ..story.conversation import (
+    HeldTurnInBase,
+    _current_query_spec,
+    _reject_held_base,
+    append_turn,
+    edit_turn,
+    held_turn_ids,
+)
 
 
 class TurnModel(BaseModel):
@@ -39,6 +46,12 @@ class TurnModel(BaseModel):
     status: Literal["proposal", "clarification", "suspended"]
     query_spec: Optional[dict] = None
     message: str
+    #: Turn contract Amendment 1 (design/turn-contract.md): this step changed
+    #: after an upstream edit and awaits the user's confirmation -- not applied.
+    #: Present only when true; the endpoint serializes with exclude_unset.
+    held_for_review: Optional[bool] = None
+    #: The spec the user last accepted for this step. Present iff held.
+    previous_query_spec: Optional[dict] = None
 
 
 class IncomingTurnModel(TurnModel):
@@ -83,6 +96,21 @@ class TurnResponse(BaseModel):
     #: was about, and what to surface for re-prompting) and are redundant
     #: with, never contradictory to, this field.
     turns: list[TurnModel] = []
+    #: Turn contract Amendment 1: the ids in `turns` held for review after an
+    #: edit, in order. Redundant with each turn's `held_for_review`, as
+    #: `suspended_turn_ids` is with `status: "suspended"`. [] on an append.
+    changed_turn_ids: list[str] = []
+
+
+def _incoming_turn(t: IncomingTurnModel) -> dict:
+    """A request turn as the orchestrator takes it. The hold fields are kept
+    only on a turn that is actually held, so a turn the caller sent without
+    them goes back out without them."""
+    d = t.model_dump()
+    if not d.get("held_for_review"):
+        d.pop("held_for_review", None)
+        d.pop("previous_query_spec", None)
+    return d
 
 
 def create_conversational_app(
@@ -97,10 +125,13 @@ def create_conversational_app(
     """
     app = FastAPI(title="exon-conversational")
 
-    @app.post("/turn", response_model=TurnResponse)
+    # exclude_unset: the Amendment 1 fields appear only on a held turn, so an
+    # unheld turn is byte-for-byte the Decision 8 shape. Every other field is
+    # always set explicitly below.
+    @app.post("/turn", response_model=TurnResponse, response_model_exclude_unset=True)
     def turn(req: TurnRequest) -> TurnResponse:
         # Error turns are display-only on the caller's side; see IncomingTurnModel.
-        turns = [t.model_dump() for t in req.turns if t.status != "error"]
+        turns = [_incoming_turn(t) for t in req.turns if t.status != "error"]
         kw = {"model": model, "protocol": protocol}
 
         if req.edit_turn_id is not None:
@@ -126,6 +157,7 @@ def create_conversational_app(
                 turn=TurnModel(**redone),
                 suspended_turn_ids=suspended,
                 turns=[TurnModel(**t) for t in new_turns],
+                changed_turn_ids=held_turn_ids(new_turns),
             )
 
         # Plain append: Decision 9 -- for now, Aperture's point-and-click
@@ -137,6 +169,13 @@ def create_conversational_app(
         # Decision 9 for the unlock path (pass `req.query_spec` through as
         # append_turn's `existing_query_spec` override instead of
         # asserting equality here; no other code needs to change).
+        # Checked before the draft agreement below: with a held turn in the
+        # history there is no agreed draft to compare against (Amendment 1).
+        try:
+            _reject_held_base(turns)
+        except HeldTurnInBase as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         derived = _current_query_spec(turns)
         if req.query_spec != derived:
             raise HTTPException(
@@ -157,6 +196,7 @@ def create_conversational_app(
             turn=TurnModel(**new_turn),
             suspended_turn_ids=[],
             turns=[TurnModel(**t) for t in new_turns],
+            changed_turn_ids=[],
         )
 
     return app
