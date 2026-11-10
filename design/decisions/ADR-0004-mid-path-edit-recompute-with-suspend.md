@@ -3,7 +3,7 @@
 - **Status:** Accepted (amended at ratification — see *Amendment and ratification (2026-11-10)*)
 - **Date:** 2026-11-10 (proposed 2026-06-17; migrated to Reel 2026-06-22)
 - **Deciders:** labadorf (decision pass 2026-11-10); originally labadorf, design session
-- **Tracking issue:** [reel#19](https://github.com/datahelix-platform/reel/issues/19) (implement the flag)
+- **Tracking issue:** [reel#19](https://github.com/datahelix-platform/reel/issues/19) (implement the hold; contract: `../turn-contract.md` Amendment 1)
 - **Related:** ADR-0001 (instruction-path model), ADR-0002 (as-of watermark), Aperture ADR-0009 (dry-run validation), Aperture ADR-0020 (provenance events); `instruction-path-model.md` §6
 
 > **Migrated from Aperture ADR-0025 (2026-06-22)** on the data-story-engine split
@@ -125,4 +125,15 @@ commit `1b050e6`): points 1 and 3 are implemented; the HTTP response returns `tu
 `suspended_turn_ids` and the full recomputed `turns`. **Point 2 is not**: a recomputed proposal
 replaces the old turn with no comparison and no flag. Tracked in [reel#19](https://github.com/datahelix-platform/reel/issues/19). The append-only
 edit-history log (Decision, second layer) remains unbuilt (delta D3).
+
+**What "flagged" means (2026-11-10, labadorf): held for review.** A downstream step whose
+QuerySpec changed comes back as a proposal **awaiting the user's confirmation**. It is not applied
+or run, and it carries its `previous_query_spec` so a UI can show the difference. The response
+lists these steps in `changed_turn_ids`, beside `suspended_turn_ids`. This is a change to the turn
+contract (ADR-0008 §3; Mosaic ADR-0010 item 7), so it is recorded as **Amendment 1** of
+[`../turn-contract.md`](../turn-contract.md), which also fixes how a held step affects the steps
+after it. The Reel side is [reel#19](https://github.com/datahelix-platform/reel/issues/19). A user
+sees a held step only after Mosaic passes the fields through its relay and GraphQL
+`ConverseResult`, and Aperture's conversational panel (Aperture ADR-0039) renders them with a
+confirm action. Both follow-ups start after the amendment merges.
 
