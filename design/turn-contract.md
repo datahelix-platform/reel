@@ -55,8 +55,11 @@ server-to-server; a browser never does.
 }
 ```
 
-A clarification may also carry `"resolution": "answered"` (`add-schema-discovery-for-query-building`):
-it answered a schema-discovery question rather than blocking, and it does not suspend on an edit.
+Inside Reel, a clarification may carry `"resolution": "answered"`
+(`add-schema-discovery-for-query-building`): it answered a schema-discovery question rather than
+blocking, and it does not suspend on an edit. That marker is **not on the wire**. `TurnModel`
+does not declare it, so the response drops it, and `edit_turn` reads it only from a fresh
+recompute.
 Mosaic adds a fourth status, `"error"`, on its own side (planner unreachable, out-of-contract
 response, or failed re-validation). Reel never emits it, and the endpoint drops an echoed `error`
 turn from the history before planning.
@@ -103,8 +106,8 @@ A step that re-plans to the same QuerySpec is carried over without being held.
 A held turn keeps the `status` its re-ask produced:
 
 - `proposal`, with the new `query_spec`, is the usual case.
-- A **non-blocking** clarification (`resolution: "answered"`, `query_spec: null`) is held when
-  the step previously carried a spec. Its constraint would otherwise disappear from the draft
+- A **non-blocking** clarification (one Reel classed as answered; on the wire, `status:
+  "clarification"`, `query_spec: null`) is held when the step previously carried a spec. Its constraint would otherwise disappear from the draft
   without the user seeing it.
 
 A blocking clarification is never held. It is `suspended`, as before (ADR-0004, point 3).
