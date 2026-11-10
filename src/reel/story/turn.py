@@ -37,6 +37,7 @@ from ..planner.spec_planner import (
     SPEC_TOOL,
     _normalize_spec,
     render_capability_grounding,
+    render_entity_kinds_section,
     render_traversable_edges,
 )
 
@@ -160,7 +161,7 @@ operators legal on each. Use these names and operators exactly:
 {{capabilities}}
 
 ## Traversable relationship edges (the only legal `edge` values for a kind=related criterion):
-{{edges}}
+{{edges}}{{kinds}}
 
 ## Conversation so far:
 {{history}}
@@ -190,6 +191,7 @@ def build_turn_grounding(
             "{{capabilities}}", render_capability_grounding(capabilities)
         )
         .replace("{{edges}}", render_traversable_edges(capabilities))
+        .replace("{{kinds}}", render_entity_kinds_section(capabilities))
         .replace("{{history}}", render_conversation_history(prior_turns))
         .replace("{{draft}}", render_current_draft(existing_query_spec))
     )

@@ -85,9 +85,16 @@ SPEC_TOOL = {
                 },
                 "anchor": {
                     "type": "string",
-                    "description": "The entity type the query returns, exactly as named in "
-                    'the grounding, e.g. "Sample" -- singular and capitalised, never the '
-                    "plural accessor name.",
+                    # No example class name here, deliberately (reel#10): this schema is
+                    # the same for every deployment, and an example that happens to be
+                    # concrete on one schema is an abstract, un-anchorable class on
+                    # another. The legal names are in the grounding, which IS per
+                    # deployment.
+                    "description": "The entity type the query returns, spelled exactly as "
+                    'one of the `entity "..."` names listed in the grounding: the singular, '
+                    "capitalised class name, never the plural accessor name. Only an entity "
+                    "the grounding lists is a legal anchor; when the grounding describes a "
+                    "family and its kinds, follow that section when choosing between them.",
                 },
                 "mode": {
                     "type": "string",
@@ -196,7 +203,14 @@ def render_capability_grounding(capabilities: dict) -> str:
     """
     lines = []
     for entity, caps in sorted(capabilities.items()):
-        header = f'- entity "{entity}":'
+        header = f'- entity "{entity}"'
+        # Hierarchy keys (Mosaic ADR-0014: `abstract`, `parent`, `kinds`) are rendered
+        # only when the manifest carries them; an older manifest renders as before.
+        if caps.get("abstract"):
+            header += ' (abstract family; see "Kinds of entities" below)'
+        elif caps.get("parent"):
+            header += f' (a kind of {caps["parent"]})'
+        header += ":"
         if caps.get("description"):
             header += f' {_one_line(caps["description"])}'
         lines.append(header)
@@ -256,12 +270,77 @@ def render_traversable_edges(capabilities: dict) -> str:
     return "\n".join(lines)
 
 
+def render_entity_kinds(capabilities: dict) -> str:
+    """The class families the manifest describes, each with its kinds -- or "" when
+    the manifest carries no hierarchy at all.
+
+    Why (reel#10): on the brain bank schema `Sample` is abstract, so its records live
+    in the collections of 33 concrete subclasses (`Blood`, `Brain`, `CSF`, ...). A
+    manifest that lists only those leaves gives the model nothing tying them to the
+    word "sample" that the user and the schema's own descriptions use, and the
+    model's natural answer -- `anchor: "Sample"` -- is rejected with UNKNOWN_ANCHOR.
+
+    The hierarchy is the server's fact to state (Mosaic ADR-0014), and this reads the
+    keys that ADR adds to each entity: `kinds` (the exposed concrete closure) and
+    `parent` (the nearest `is_a`). Either alone is enough; both are merged. Whether a
+    family is itself a legal anchor follows from the manifest, not from the
+    `abstract` flag: an entity in the manifest has a collection (under ADR-0014 an
+    abstract anchor's collection spans its closure), while a family named only as
+    some entity's `parent` has no entry and therefore no collection -- the model is
+    told to anchor on one of its kinds, or to ask when the user's words fit several.
+
+    Pre-ADR-0014 manifests carry none of these keys and render nothing: the grounding
+    is byte-for-byte what it was.
+    """
+    families: dict[str, set[str]] = {}
+    for entity, caps in capabilities.items():
+        for kind in caps.get("kinds") or ():
+            families.setdefault(entity, set()).add(kind)
+        parent = caps.get("parent")
+        if parent:
+            families.setdefault(parent, set()).add(entity)
+
+    lines = []
+    for family in sorted(families):
+        kinds = sorted(families[family] - {family})
+        if not kinds:
+            continue
+        listed = ", ".join(f'"{k}"' for k in kinds)
+        if family in capabilities:
+            lines.append(
+                f'- "{family}" is queryable itself and has more specific kinds: {listed}. '
+                f'Anchor on "{family}" when the question is about the family as a whole; '
+                f"anchor on a kind when the user names one."
+            )
+        else:
+            lines.append(
+                f'- "{family}" is a family with NO collection of its own -- it is NOT a '
+                f"legal anchor. Its kinds are: {listed}. Anchor on the kind the user means; "
+                f"if their words fit more than one kind, ask a clarification rather than "
+                f"guessing."
+            )
+    return "\n".join(lines)
+
+
+def render_entity_kinds_section(capabilities: dict) -> str:
+    """`render_entity_kinds` as a whole grounding section (heading included),
+    prefixed so it slots in after the edges section -- or "" when there is nothing
+    to say, so a manifest without a hierarchy adds not even a blank line."""
+    body = render_entity_kinds(capabilities)
+    if not body:
+        return ""
+    return (
+        "\n\n## Kinds of entities (families, and the kinds whose records they cover):\n"
+        + body
+    )
+
+
 DEFAULT_GROUNDING_BODY = """## Live capability manifest -- the entities, fields, and the \
 operators legal on each. Use these names and operators exactly:
 {{capabilities}}
 
 ## Traversable relationship edges (the only legal `edge` values for a kind=related criterion):
-{{edges}}
+{{edges}}{{kinds}}
 
 ## Hard constraints
 - `sort` takes AT MOST ONE entry.
@@ -276,9 +355,13 @@ unsupported shape."""
 
 def build_grounding_context(capabilities: dict) -> str:
     """The source of entity/field/operator names the model may use."""
-    return DEFAULT_GROUNDING_BODY.replace(
-        "{{capabilities}}", render_capability_grounding(capabilities)
-    ).replace("{{edges}}", render_traversable_edges(capabilities))
+    return (
+        DEFAULT_GROUNDING_BODY.replace(
+            "{{capabilities}}", render_capability_grounding(capabilities)
+        )
+        .replace("{{edges}}", render_traversable_edges(capabilities))
+        .replace("{{kinds}}", render_entity_kinds_section(capabilities))
+    )
 
 
 DEFAULT_SYSTEM_PROMPT = (
