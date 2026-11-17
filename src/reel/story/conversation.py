@@ -100,7 +100,7 @@ def specs_equal(a: dict | None, b: dict | None) -> bool:
 
 def held_turn_ids(turns: list[dict]) -> list[str]:
     """Ids of the turns held for review, in conversation order -- the response's
-    `changed_turn_ids` (turn contract, Amendment 1)."""
+    `held_turn_ids` (turn contract, Amendment 1)."""
     return [t["id"] for t in turns if t.get("held_for_review")]
 
 

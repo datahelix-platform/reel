@@ -1,10 +1,11 @@
 """Downstream steps changed by a mid-path edit are held for review (reel#19).
 
 ADR-0004 point 2, as decided 2026-11-10 and specified by the turn contract's
-Amendment 1 (design/turn-contract.md): after an edit, a recomputed step whose
+Amendment 1 (design/turn-contract.md; its open questions decided 2026-11-17):
+after an edit, a recomputed step whose
 QuerySpec differs from the one the user accepted comes back as a proposal
 awaiting confirmation -- `held_for_review: true`, with `previous_query_spec` --
-and the response lists it in `changed_turn_ids`. No model calls: request_turn is
+and the response lists it in `held_turn_ids`. No model calls: request_turn is
 scripted, as in test_conversational_orchestrator.py.
 """
 import pytest
@@ -97,7 +98,7 @@ class TestEditTurnHolds:
     def test_an_unchanged_recompute_is_not_held(self, model):
         # Edit t1 to the same meaning; t2/t3 re-plan to what they were.
         model.queue += [_proposal(A), _proposal(AB), _proposal(ABC)]
-        new_turns, redone, suspended = edit_turn(THREE, "t1", "say t1 again", CAPS)
+        new_turns, _, suspended = edit_turn(THREE, "t1", "say t1 again", CAPS)
         assert held_turn_ids(new_turns) == [] and suspended == []
         assert all("held_for_review" not in t and "previous_query_spec" not in t for t in new_turns)
 
@@ -108,7 +109,7 @@ class TestEditTurnHolds:
 
     def test_a_changed_spec_is_held_with_its_previous_spec(self, model):
         model.queue += [_proposal(X), _proposal(_spec("x", "b")), _proposal(_spec("x", "b", "c"))]
-        new_turns, redone, suspended = edit_turn(THREE, "t1", "x instead", CAPS)
+        new_turns, _, suspended = edit_turn(THREE, "t1", "x instead", CAPS)
         assert held_turn_ids(new_turns) == ["t2", "t3"]
         t2, t3 = new_turns[1], new_turns[2]
         assert t2["status"] == "proposal" and t2["query_spec"] == _spec("x", "b")
@@ -128,6 +129,28 @@ class TestEditTurnHolds:
         new_turns, _, _ = edit_turn(THREE, "t1", "same", CAPS)
         assert model.calls[2]["existing_query_spec"] == AC
         assert held_turn_ids(new_turns) == ["t2"]
+
+    def test_editing_before_the_first_held_turn_is_allowed(self, model):
+        # Rule 5: only a held turn in the planning base (turns[:i]) blocks. An
+        # edit at t1 with t2 and t3 both held re-plans both; each keeps its own
+        # accepted baseline.
+        turns = [_turn("t1", A),
+                 _turn("t2", AC, held_for_review=True, previous_query_spec=AB),
+                 _turn("t3", _spec("a", "c", "d"), held_for_review=True, previous_query_spec=ABC)]
+        model.queue += [_proposal(X), _proposal(_spec("x", "b")), _proposal(_spec("x", "b", "c"))]
+        new_turns, _, _ = edit_turn(turns, "t1", "x instead", CAPS)
+        assert held_turn_ids(new_turns) == ["t2", "t3"]
+        assert new_turns[1]["previous_query_spec"] == AB and new_turns[2]["previous_query_spec"] == ABC
+
+    def test_editing_a_later_held_turn_while_an_earlier_one_is_held_is_refused(self, model):
+        # Rule 2/5: holds are resolved in order. Rejecting t3 (by editing it)
+        # needs t2 confirmed or edited first.
+        turns = [_turn("t1", A),
+                 _turn("t2", AC, held_for_review=True, previous_query_spec=AB),
+                 _turn("t3", _spec("a", "c", "d"), held_for_review=True, previous_query_spec=ABC)]
+        with pytest.raises(HeldTurnInBase, match="t2"):
+            edit_turn(turns, "t3", "something else", CAPS)
+        assert model.calls == []
 
     def test_a_proposal_that_becomes_an_answered_clarification_is_held(self, model):
         model.queue += [_proposal(A), _discovery(), _proposal(ABC)]
@@ -181,7 +204,7 @@ class TestEditTurnHolds:
     def test_editing_the_held_step_itself_is_allowed(self, model):
         turns = [_turn("t1", A), _turn("t2", AC, held_for_review=True, previous_query_spec=AB)]
         model.queue += [_proposal(AB)]
-        new_turns, redone, _ = edit_turn(turns, "t2", "b after all", CAPS)
+        _, redone, _ = edit_turn(turns, "t2", "b after all", CAPS)
         assert redone["query_spec"] == AB and "held_for_review" not in redone
 
     def test_editing_past_a_held_step_is_refused(self, model):
@@ -220,7 +243,7 @@ class TestHttp:
                                        "turns": THREE, "edit_turn_id": "t1"})
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["changed_turn_ids"] == ["t2", "t3"]
+        assert body["held_turn_ids"] == ["t2", "t3"]
         assert body["suspended_turn_ids"] == []
         t1, t2, t3 = body["turns"]
         assert "held_for_review" not in t1 and "previous_query_spec" not in t1
@@ -233,15 +256,15 @@ class TestHttp:
         r = client.post("/turn", json={"utterance": "same", "query_spec": ABC,
                                        "turns": THREE, "edit_turn_id": "t1"})
         body = r.json()
-        assert body["changed_turn_ids"] == []
+        assert body["held_turn_ids"] == []
         for t in body["turns"] + [body["turn"]]:
             assert set(t) == {"id", "utterance", "status", "query_spec", "message"}
 
-    def test_an_append_returns_an_empty_changed_list(self, client):
+    def test_an_append_returns_an_empty_held_list(self, client):
         client.model.queue.append(_proposal(A))
         r = client.post("/turn", json={"utterance": "a", "query_spec": None, "turns": []})
         assert r.status_code == 200
-        assert r.json()["changed_turn_ids"] == []
+        assert r.json()["held_turn_ids"] == []
 
     def test_appending_after_a_held_turn_is_a_400_naming_it(self, client):
         turns = [_turn("t1", A), _turn("t2", AC, held_for_review=True, previous_query_spec=AB)]
@@ -256,6 +279,32 @@ class TestHttp:
         r = client.post("/turn", json={"utterance": "and d", "query_spec": AC, "turns": turns})
         assert r.status_code == 200
         assert client.model.calls[0]["existing_query_spec"] == AC
+
+    def test_confirm_all_in_order_then_append_plans_on_the_last_held_spec(self, client):
+        # "Confirm all" (rule 2) is client-side: the caller drops the hold
+        # fields from every held turn, in order. No planner call is needed to
+        # confirm, and the next append plans against the last confirmed spec.
+        held = [_turn("t1", A),
+                _turn("t2", AC, held_for_review=True, previous_query_spec=AB),
+                _turn("t3", _spec("a", "c", "d"), held_for_review=True, previous_query_spec=ABC)]
+        confirmed = [{k: v for k, v in t.items() if k not in ("held_for_review", "previous_query_spec")}
+                     for t in held]
+        client.model.queue.append(_proposal(_spec("a", "c", "d", "e")))
+        r = client.post("/turn", json={"utterance": "and e", "query_spec": _spec("a", "c", "d"),
+                                       "turns": confirmed})
+        assert r.status_code == 200, r.text
+        assert client.model.calls == [{"utterance": "and e", "existing_query_spec": _spec("a", "c", "d")}]
+        assert r.json()["held_turn_ids"] == []
+
+    def test_confirming_out_of_order_still_blocks_on_the_earlier_hold(self, client):
+        # Rule 2: only the first held turn can be confirmed on its own. A client
+        # that confirms t3 but leaves t2 held still cannot plan past t2.
+        turns = [_turn("t1", A),
+                 _turn("t2", AC, held_for_review=True, previous_query_spec=AB),
+                 _turn("t3", _spec("a", "c", "d"))]
+        r = client.post("/turn", json={"utterance": "more", "query_spec": _spec("a", "c", "d"), "turns": turns})
+        assert r.status_code == 400 and "t2" in r.json()["detail"]
+        assert client.model.calls == []
 
     def test_an_explicit_false_hold_is_not_echoed(self, client):
         turns = [_turn("t1", A, held_for_review=False, previous_query_spec=None)]

@@ -99,7 +99,7 @@ class TurnResponse(BaseModel):
     #: Turn contract Amendment 1: the ids in `turns` held for review after an
     #: edit, in order. Redundant with each turn's `held_for_review`, as
     #: `suspended_turn_ids` is with `status: "suspended"`. [] on an append.
-    changed_turn_ids: list[str] = []
+    held_turn_ids: list[str] = []
 
 
 def _incoming_turn(t: IncomingTurnModel) -> dict:
@@ -157,7 +157,7 @@ def create_conversational_app(
                 turn=TurnModel(**redone),
                 suspended_turn_ids=suspended,
                 turns=[TurnModel(**t) for t in new_turns],
-                changed_turn_ids=held_turn_ids(new_turns),
+                held_turn_ids=held_turn_ids(new_turns),
             )
 
         # Plain append: Decision 9 -- for now, Aperture's point-and-click
@@ -196,7 +196,7 @@ def create_conversational_app(
             turn=TurnModel(**new_turn),
             suspended_turn_ids=[],
             turns=[TurnModel(**t) for t in new_turns],
-            changed_turn_ids=[],
+            held_turn_ids=[],
         )
 
     return app
