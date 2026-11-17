@@ -129,7 +129,8 @@ edit-history log (Decision, second layer) remains unbuilt (delta D3).
 **What "flagged" means (2026-11-10, labadorf): held for review.** A downstream step whose
 QuerySpec changed comes back as a proposal **awaiting the user's confirmation**. It is not applied
 or run, and it carries its `previous_query_spec` so a UI can show the difference. The response
-lists these steps in `changed_turn_ids`, beside `suspended_turn_ids`. This is a change to the turn
+lists these steps in `held_turn_ids` (drafted as `changed_turn_ids`; named on 2026-11-17),
+beside `suspended_turn_ids`. This is a change to the turn
 contract (ADR-0008 §3; Mosaic ADR-0010 item 7), so it is recorded as **Amendment 1** of
 [`../turn-contract.md`](../turn-contract.md), which also fixes how a held step affects the steps
 after it. The Reel side is [reel#19](https://github.com/datahelix-platform/reel/issues/19). A user
@@ -137,9 +138,19 @@ sees a held step only after Mosaic passes the fields through its relay and Graph
 `ConverseResult`, and Aperture's conversational panel (Aperture ADR-0039) renders them with a
 confirm action. Both follow-ups start after the amendment merges.
 
+**Amendment 1's open questions decided (2026-11-17, labadorf).** The contract lives in Reel at
+[`../turn-contract.md`](../turn-contract.md). Steps after a held step are re-asked against the
+held step's new spec and are held themselves if they changed; the applied draft ends at the first
+held turn; confirmation is in order (client-side, "confirm all" allowed); a held step is rejected
+by editing it; a request whose planning base contains a held turn gets a 400. Suspending
+everything after a held step, and re-asking against the last applied spec, were considered and
+rejected. v1 has no restore-previous ("keep the old meaning") action; one can be added later as an
+additive amendment. The response field is `held_turn_ids`. The reasoning is in the contract's
+*Decisions of 2026-11-17* section.
+
 **As built, Reel side (reel#19):** point 2 is implemented in `edit_turn`
 (`src/reel/story/conversation.py`) and `/turn` (`src/reel/serve/http.py`) per Amendment 1. Held
-turns carry `held_for_review` / `previous_query_spec`, the response carries `changed_turn_ids`,
+turns carry `held_for_review` / `previous_query_spec`, the response carries `held_turn_ids`,
 and a request that would plan on top of a held turn answers 400. Tests:
 `tests/test_held_for_review.py` (no model calls).
 
