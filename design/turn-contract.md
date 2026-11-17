@@ -1,6 +1,7 @@
 # The conversational turn contract (v1 wire form of `Instruction`)
 
-**Status:** 🟢 Canonical for amendments, from 2026-11-10. **Owner:** Reel (ADR-0008 §3).
+**Status:** 🟢 Canonical for amendments, from 2026-11-10 (this home confirmed by labadorf,
+2026-11-17). **Owner:** Reel (ADR-0008 §3).
 **Depends on:** ADR-0001 (instruction path), ADR-0004 (mid-path edit), ADR-0006 (State =
 QuerySpec), ADR-0007 (Reel behind Mosaic's validating relay), ADR-0008 (this contract is the v1
 wire form of `Instruction`; Reel owns it).
@@ -84,7 +85,9 @@ differ, the endpoint answers 400 (Decision 9).
 
 ## Amendment 1 (2026-11-10): changed downstream steps are held for review
 
-**Decided by** labadorf, 2026-11-10 decision pass. **Implements** ADR-0004's v1 rule, point 2.
+**Decided by** labadorf, 2026-11-10 decision pass; its open questions (how a held step affects
+later steps, a restore action, field names) decided by labadorf on 2026-11-17 (see *Decisions of
+2026-11-17* below). **Implements** ADR-0004's v1 rule, point 2.
 **Reel implementation:** [reel#19](https://github.com/datahelix-platform/reel/issues/19).
 
 ### What it decides
@@ -125,7 +128,7 @@ values map onto ADR-0001's `valid | invalid | suspended`.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `changed_turn_ids` | `[id]`, absent = `[]` | Ids of the turns in `turns` that are held for review, in conversation order. Always `[]` on an append. Never contains the edited turn itself (the user just wrote it) or a suspended turn (`suspended_turn_ids` reports those). |
+| `held_turn_ids` | `[id]`, absent = `[]` | Ids of the turns in `turns` that are held for review, in conversation order. Always `[]` on an append. Never contains the edited turn itself (the user just wrote it) or a suspended turn (`suspended_turn_ids` reports those). |
 
 It sits beside `suspended_turn_ids` and, like it, duplicates per-turn state in `turns` without
 ever contradicting it.
@@ -157,7 +160,7 @@ spec now matches what the user accepted.
 
 ### Steps after a held step
 
-**Rule (proposed; open question 1 below):** a held step does **not** suspend or cascade. The steps
+**Rule (decided 2026-11-17, labadorf):** a held step does **not** suspend or cascade. The steps
 after it are re-asked against the held step's **new** spec, as if it were confirmed. Each is
 compared with its own baseline and held if it changed.
 
@@ -178,7 +181,7 @@ Consequences, which together keep "not applied" true:
 4. **The way to reject a held step is to edit it** (`edit_turn_id` on that step, with new
    wording). That recomputes the steps after it against the new baseline. v1 has no
    "restore previous spec" operation: the previous spec was planned against the pre-edit
-   upstream and may not hold under the new one (open question 2).
+   upstream and may not hold under the new one (decided 2026-11-17; see below).
 5. **A request must not plan on top of a held turn.** The base a request plans against is
    `turns[:i]`, where `i` is the edited turn's index, or `len(turns)` for an append. If that base
    contains a turn with `held_for_review: true`, Reel answers **400** and names the turn: confirm
@@ -189,7 +192,7 @@ Consequences, which together keep "not applied" true:
 
 | Reel | Relay / client | Result |
 |---|---|---|
-| amended | Mosaic and Aperture today | Mosaic's per-turn check ignores unknown keys, so the MCP envelope carries `held_for_review` and `previous_query_spec` on the turns through (`turns` is passed through as received). The relay rebuilds the envelope as `{turn, suspended_turn_ids, turns}`, which drops `changed_turn_ids`, and GraphQL `ConverseResult`'s fixed fields drop all three. A held step therefore reaches the user as an ordinary proposal. This matches the behaviour before the amendment: no regression and no error turns, but the hold is invisible until the follow-ups land. |
+| amended | Mosaic and Aperture today | Mosaic's per-turn check ignores unknown keys, so the MCP envelope carries `held_for_review` and `previous_query_spec` on the turns through (`turns` is passed through as received). The relay rebuilds the envelope as `{turn, suspended_turn_ids, turns}`, which drops `held_turn_ids`, and GraphQL `ConverseResult`'s fixed fields drop all three. A held step therefore reaches the user as an ordinary proposal. This matches the behaviour before the amendment: no regression and no error turns, but the hold is invisible until the follow-ups land. |
 | amended | Mosaic passes the fields through; Aperture ignores them | Same as above at the UI. |
 | amended | all three amended | Held steps are shown with their difference and a confirm action; nothing past the first held turn runs until it is confirmed. |
 | pre-amendment | amended Mosaic / Aperture | The fields are never present; absent means not held. No change in behaviour. |
@@ -199,16 +202,27 @@ the fields through the relay and adds them to GraphQL `ConverseResult` and its t
 Mosaic ADR-0010. Aperture's conversational panel shows held steps with the old/new difference and
 a confirm action, under Aperture ADR-0039.
 
-### Open questions for the maintainer
+### Decisions of 2026-11-17 (were: open questions for the maintainer)
 
-1. **The rule for steps after a held step**, above: re-ask against the held step's new spec and
-   hold each one that changed. The alternatives are to suspend everything after a held step (no
-   model calls, but every downstream step needs re-prompting after any change) or to re-ask
-   against the last *applied* spec. The second is inconsistent: once the user confirmed, the
-   later steps would have been planned against the wrong base.
-2. **No reject-and-restore in v1.** Restoring `previous_query_spec` as-is would apply a spec
-   planned against the pre-edit upstream. Should a "keep the old meaning" action exist? If it
-   should, it is a planner call (re-ask with the old spec as a hint), not a client-side swap.
-3. **Field names.** `held_for_review` and `previous_query_spec` (per turn) and `changed_turn_ids`
-   (response) follow the 2026-11-10 brief. `held_turn_ids` would name the response field after
-   what it lists. It is cheap to change before the Mosaic and Aperture follow-ups start.
+Decided by labadorf on 2026-11-17. Each item keeps the question as it was asked, then the ruling.
+
+1. **The rule for steps after a held step.** *Asked:* re-ask against the held step's new spec and
+   hold each one that changed? *Decided:* **yes**, as written in *Steps after a held step* above,
+   with all five consequences: the applied draft ends at the first held turn; confirmation is in
+   order and "confirm all" is allowed, client-side; a held step is rejected by editing it; a
+   request whose planning base contains a held turn gets a 400.
+   *Rejected alternatives:*
+   - **Suspend everything after a held step.** No model calls, but every downstream step would
+     need re-prompting after any upstream change, even a step the change does not affect.
+   - **Re-ask later steps against the last *applied* spec** (the held step's baseline). This is
+     inconsistent: once the user confirmed the held step, the later steps would have been planned
+     against the wrong base.
+2. **No reject-and-restore in v1.** *Asked:* should a "keep the old meaning" action exist?
+   (Restoring `previous_query_spec` as-is would apply a spec planned against the pre-edit
+   upstream; if it existed it would be a planner call, re-asking with the old spec as a hint, not
+   a client-side swap.) *Decided:* **no restore action in v1.** It can be added later as an
+   additive amendment if wanted.
+3. **Field names.** *Asked:* keep `changed_turn_ids` (from the 2026-11-10 brief) or name the
+   response field after what it lists? *Decided:* the response field is **`held_turn_ids`**.
+   The per-turn fields stay `held_for_review` and `previous_query_spec`. No peer had shipped
+   `changed_turn_ids`, so the rename needs no compatibility note.
