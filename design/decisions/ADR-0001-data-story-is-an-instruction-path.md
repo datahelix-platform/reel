@@ -1,9 +1,9 @@
 # ADR-0001: A data story is an instruction path producing typed subgraph states + artifacts
 
-- **Status:** Proposed
-- **Date:** 2026-06-17 (migrated to Reel 2026-06-22)
-- **Deciders:** labadorf, design session
-- **Related:** Aperture ADR-0003 (config-as-LinkML-in-Mosaic), Aperture ADR-0009 (view-descriptions + headless validation), Aperture ADR-0010 (typed noun-catalog, keystone), Aperture ADR-0020 (conversations/actions are provenance events), Aperture ADR-0002 (generic, no domain nouns); ADR-0002 (as-of reproducibility), ADR-0005 (headless core); `instruction-path-model.md`; `prefab/data-stories.md`
+- **Status:** Accepted (amended at ratification — see *Ratification (2026-11-10)*)
+- **Date:** 2026-11-10 (proposed 2026-06-17; migrated to Reel 2026-06-22)
+- **Deciders:** labadorf (decision pass 2026-11-10); originally labadorf, design session
+- **Related:** Aperture ADR-0003 (config-as-LinkML-in-Mosaic), Aperture ADR-0009 (view-descriptions + headless validation), Aperture ADR-0010 (typed noun-catalog, keystone), Aperture ADR-0020 (conversations/actions are provenance events), Aperture ADR-0002 (generic, no domain nouns); ADR-0002 (as-of reproducibility), ADR-0005 (headless core), ADR-0006 (v1 State = QuerySpec), ADR-0007 (validation at the Mosaic boundary), ADR-0008 (turn contract = v1 `Instruction`); `instruction-path-model.md`; `prefab/data-stories.md`
 
 > **Migrated from Aperture ADR-0022 (2026-06-22)** on the data-story-engine split
 > (boundary decision `datahelix:platform/design/decisions/ADR-0003`, whose **Outcome** section
@@ -36,8 +36,9 @@ source-tagged `Instruction`s that deterministically produces a sequence of `Stat
   that expands to one or more nested, sequential typed **ops** (think tool calls) drawn from the
   closed catalog (`filter · exists-related-filter · distinct-values · group-by+count ·
   pivot-grain · set-op · render-as-primitive`). A UI event is born as one op; a chat turn is raw
-  intent elaborated by the LLM into ops and **dry-run-validated** (Aperture ADR-0009) before
-  applying. The `Instruction` is the **unit of rewind**; its nested ops are inspectable but not
+  intent elaborated by the LLM into ops and **validated at Mosaic's MCP boundary** before
+  anything executes (ADR-0007 — Reel hosts no validator; *amended 2026-11-10*, was
+  "dry-run-validated (Aperture ADR-0009)"). The `Instruction` is the **unit of rewind**; its nested ops are inspectable but not
   independently addressable — to change a turn, edit the prompt and re-elaborate.
 - **`State`** — a typed **subgraph specification** (intensional): the predicates/selections that
   *denote* a subgraph of `Entity`/`Relationship` instances per the LinkML schema. A "cohort" is a
@@ -64,7 +65,8 @@ The full model lives in [`instruction-path-model.md`](../instruction-path-model.
   free (Aperture ADR-0003) — and the "re-runnable declarative artifact" `vision.md` promises is
   literally "replay the path."
 - **Obligations:** the op catalog must be closed and typed (couples to Aperture ADR-0010); every
-  instruction must be dry-run-validatable before apply (Aperture ADR-0009); State must stay
+  instruction must be validated before it executes — by Mosaic's boundary, not by Reel
+  (ADR-0007; *amended 2026-11-10*, was "dry-run-validatable (Aperture ADR-0009)"); State must stay
   intensional (forces the reproducibility model — ADR-0002).
 - **Deferred:** ops over *heterogeneous* entity types within one subgraph (multi-type op
   semantics) are hard and out of scope for v1; the v1 op catalog stays single-focal-type.
@@ -115,3 +117,33 @@ The full model lives in [`instruction-path-model.md`](../instruction-path-model.
   and `set-op` remain unbuilt. Multi-type ops (the named open problem) are untouched.
 - **Ratification recommendation:** the model held up under the probe; the remaining sub-question
   is multi-type op semantics, which was already deferred. Ratify alongside ADR-0003/0004.
+
+### Ratification (2026-11-10) — Accepted, with amendment
+
+Ratified by labadorf in the 2026-11-10 decision pass. The model above stands; the amendment
+pins down the **v1 forms** of its abstract nouns, each already settled by a later Reel ADR:
+
+- **`State` (v1) is the platform QuerySpec** — [ADR-0006](./ADR-0006-v1-state-is-the-queryspec.md)
+  (Aperture ADR-0035 / Mosaic ADR-0009). Reel composes QuerySpec instances; it defines no query
+  noun of its own.
+- **Validation is delegated to the Mosaic boundary** —
+  [ADR-0007](./ADR-0007-reel-delegates-to-the-mosaic-boundary.md). The Decision and Consequences
+  text above originally said each instruction is "dry-run-validated (Aperture ADR-0009)"; that
+  wording is replaced in place (marked *amended 2026-11-10*). Mosaic's `validate_query_spec` /
+  the validating relay (Mosaic ADR-0009/0010) is the gate; Reel is an untrusted planner behind it.
+- **`Instruction` (v1 wire form) is the turn contract** —
+  [ADR-0008](./ADR-0008-exon-seeds-reel.md): request `{utterance, query_spec, turns,
+  edit_turn_id}` → response `{turn, suspended_turn_ids, turns}`. A turn is one chat
+  `Instruction`; its `query_spec` is the resulting State.
+
+**Not built yet** (verified against `src/reel/` at v0.1.0+, commit `1b050e6`): the code carries
+an ordered `turns` list of `{id, utterance, status, message, query_spec}` and nothing more. Absent:
+
+- **`Artifact`s** — no materialized/rendered artifact is produced or stamped; Reel emits
+  QuerySpecs, and execution happens in Mosaic. No migration delta names this yet.
+- **`DataStory` persistence** — no container, no store; the transcript lives in the caller
+  (migration delta **D1**, `../../proposals/exon-migration.md`).
+- **Source tags** — no `Instruction.source`; every turn is implicitly `chat` (delta **D4**).
+- **Op expansion** — the nested typed ops a turn elaborates into are not exposed; a turn carries
+  only the resulting full QuerySpec (delta **D5**).
+

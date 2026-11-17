@@ -1,8 +1,8 @@
 # ADR-0005: Reel is a headless interaction core + a thin, replaceable shell
 
-- **Status:** Proposed
-- **Date:** 2026-06-22
-- **Deciders:** labadorf, design session
+- **Status:** Accepted (amended at ratification — see *Ratification (2026-11-10)*)
+- **Date:** 2026-11-10 (proposed 2026-06-22)
+- **Deciders:** labadorf (decision pass 2026-11-10); originally labadorf, design session
 - **Related:** reframes Aperture ADR-0014 (application architecture); depends on Aperture ADR-0008 (injected capability-scoped client), Aperture ADR-0009 (view-descriptions, not DOM), Aperture ADR-0017 (data plane / control-plane port), ADR-0001 (instruction-path model); informs Aperture ADR-0011 (component runtime), Aperture ADR-0015 (composability); `vision.md`; Aperture `architecture.md`; `datahelix:platform/design/view-contract.md`
 
 > **Migrated from Aperture ADR-0026 (2026-06-22)** on the data-story-engine split
@@ -171,3 +171,47 @@ MCP agent, or the headless validators.
   (request `{utterance, query_spec, turns, edit_turn_id}` → response `{turn, suspended_turn_ids}`)
   is the v1 wire form of "how a host drives an instruction-path session" —
   [ADR-0008](./ADR-0008-exon-seeds-reel.md).
+
+### Ratification (2026-11-10) — Accepted, amended: the core is narrowed
+
+Ratified by labadorf in the 2026-11-10 decision pass. The boundary stands — **Reel is a headless
+core; any renderer is a thin, replaceable shell on the far side of the View Contract; no
+interaction logic in the shell.** What changes is the inventory of the core. The Decision's
+six-bullet list above is history; **the core is now exactly:**
+
+1. **the instruction-path engine** — `state[n] = apply(instruction[n], state[n-1])`, the turn
+   list, rewind/edit (ADR-0001/0003/0004), as-of pinning (ADR-0002);
+2. **the planner** — natural language → QuerySpec, grounded in Mosaic's capability manifest
+   (ADR-0006, ADR-0008);
+3. **the producer of View Contract instances** — Reel's output toward any renderer
+   (`datahelix:platform/design/view-contract.md`).
+
+**Dropped from the core:**
+
+- **The component runtime** (Aperture ADR-0011 — Web Worker / Pyodide). Not Reel's; Aperture
+  ADR-0011 was itself deferred in the same 2026-11-10 decision pass.
+- **The headless validators.** Query validation is Mosaic's — Reel
+  [ADR-0007](./ADR-0007-reel-delegates-to-the-mosaic-boundary.md), Mosaic ADR-0009/0010. Reel
+  hosts no validator (`CLAUDE.md`: "Never design a Reel-owned validator, executor, or query
+  dialect"). Conformance checking of View Contract instances, when it exists, belongs with the
+  platform View Contract spec, not in Reel's core.
+- **The MCP / agent surface** (Aperture ADR-0021). Mosaic hosts it (Mosaic ADR-0009) and may
+  delegate outbound to Reel as an untrusted planner behind its validating relay (Mosaic
+  ADR-0010; Reel ADR-0007). Reel's only inbound surface is the relay-facing turn endpoint.
+
+**The shell side is settled** by Aperture ADR-0014 (Accepted as posed), **ADR-0030** (React +
+Vite SPA) and **ADR-0031** (config-selected layout library); see the 2026-09-11 status update
+above. The "framework ADR" this ADR anticipated is Aperture's, and the open sub-question on where
+the framework-neutral renderer lives is Aperture's to settle, not Reel's.
+
+The three injection seams are unchanged in principle: (1) the capability-scoped client is
+realized as Reel's MCP client onto Mosaic's boundary (`src/reel/planner/boundary.py`), with Reel
+auth-unaware; (2) the control-plane store port remains the seam for `DataStory` persistence
+(unbuilt — migration delta D1); (3) the renderer seam is the View Contract.
+
+**As built** (verified against `src/reel/` at commit `1b050e6`): items 1 and 2 exist in their
+v1 forms (`reel.story`, `reel.planner`; linear, unpinned — see ADR-0002/0003). **Item 3 does not
+exist yet**: Reel emits QuerySpecs inside turns and no View Contract instances — unsurprising,
+since the View Contract is still a stub (`datahelix:platform/design/view-contract.md`). It is
+the core's target output, not a shipped one.
+

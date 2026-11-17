@@ -62,7 +62,9 @@ one-off demo:
 | Is the loop reproducible/measurable? | Yes — per-case pass rate over *k* samples, strict count, flake rate, environment failures withheld from the refiner, holdout isolation enforced. |
 
 Consequence for Reel: ADR-0001–0004 were gated on this probe; the model held. Ratification is a
-status flip the deciders make (see INDEX Decision Queue). The probe's faithfulness gap is Reel's
+status flip the deciders make (see INDEX Decision Queue).
+**Ratified 2026-11-10:** ADR-0001–0005 are `Accepted` — 0001, 0004 and 0005 amended to their v1
+forms, 0002 with the `asOf` ⟂ `RelatedCondition` v1 limit; see each ADR's ratification section. The probe's faithfulness gap is Reel's
 first measured backlog (`proposals/exon-migration.md` §4).
 
 ## Where Reel sits on the platform roadmap

@@ -1,9 +1,9 @@
 # ADR-0002: Data-story reproducibility via one as-of watermark per story-version
 
-- **Status:** Proposed
-- **Date:** 2026-06-17 (migrated to Reel 2026-06-22)
-- **Deciders:** labadorf, design session
-- **Related:** ADR-0001 (instruction-path model), Aperture ADR-0020 (provenance events), Aperture ADR-0017 (data plane vs control plane); `instruction-path-model.md` §5; Mosaic `docs/data-model.md` (provenance & history, `state_at`); Mosaic ADR-0001 (graph-level as-of)
+- **Status:** Accepted (with a stated v1 limit — see *Ratification (2026-11-10)*)
+- **Date:** 2026-11-10 (proposed 2026-06-17; migrated to Reel 2026-06-22)
+- **Deciders:** labadorf (decision pass 2026-11-10); originally labadorf, design session
+- **Related:** ADR-0001 (instruction-path model), Aperture ADR-0020 (provenance events), Aperture ADR-0017 (data plane vs control plane); `instruction-path-model.md` §5; Mosaic `docs/data-model.md` (provenance & history, `state_at`); Mosaic ADR-0001 (graph-level as-of); mosaic#269 (`asOf` + `RelatedCondition` — lifts the v1 limit)
 
 > **Migrated from Aperture ADR-0023 (2026-06-22)** on the data-story-engine split
 > (boundary decision `datahelix:platform/design/decisions/ADR-0003`, whose **Outcome** section
@@ -97,3 +97,28 @@ reused (the same idea as Mosaic's `previous_state_hash`).
 - **Content-addressed nodes are not in the prototype.** Exon's turn `id`s are opaque, not
   `hash(op, parent-hashes, watermark)`; this is a migration delta, not a contract change (the
   wire `id` stays opaque to callers).
+
+### Ratification (2026-11-10) — Accepted, with a stated v1 limit
+
+Ratified by labadorf in the 2026-11-10 decision pass: one as-of watermark per story-version;
+"pull in new data" is a recorded watermark-advance producing a new story-version; content-addressed
+instruction nodes.
+
+**v1 limit — stories with a related-entity filter cannot be pinned.** A story whose path contains
+an `exists-related-filter` (a QuerySpec `RelatedCondition` anywhere in `criteria`) **cannot carry
+a watermark** until Mosaic supports `asOf` combined with a `RelatedCondition`. Mosaic's validator
+rejects that combination today with the coded error `ASOF_RELATIONSHIP_FILTER_UNSUPPORTED`
+(`mosaic:src/mosaic/core/query_spec.py`, the `spec.as_of is not None and
+_contains_related_condition(...)` check at ~L476–483 on `main` as of 2026-11-10). Reel must not
+work around it — not by dropping the watermark silently, nor by pinning only the non-related
+steps (that would mix data from two times, which this ADR rejects). Lifting the limit is a Mosaic
+change (the temporal join, Mosaic ADR-0001 increment "M5a"), tracked in
+[mosaic#269](https://github.com/datahelix-platform/mosaic/issues/269).
+
+**As built** (verified against `src/reel/` at commit `1b050e6`): nothing of this ADR is
+implemented in Reel yet — no watermark field, no `asOf` emitted by the planner, no node hashes
+(turn ids are opaque `uuid4().hex`). Watermark pinning and content addressing are migration
+delta **D2** (`../../proposals/exon-migration.md`), whose gate already states the v1 limit
+above. Until D2 lands, Reel stories make no reproducibility promise (inherited from Exon
+Decision 6).
+
