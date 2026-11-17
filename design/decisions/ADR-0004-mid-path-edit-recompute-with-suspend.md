@@ -3,7 +3,7 @@
 - **Status:** Accepted (amended at ratification — see *Amendment and ratification (2026-11-10)*)
 - **Date:** 2026-11-10 (proposed 2026-06-17; migrated to Reel 2026-06-22)
 - **Deciders:** labadorf (decision pass 2026-11-10); originally labadorf, design session
-- **Tracking issue:** [reel#19](https://github.com/datahelix-platform/reel/issues/19) (implement the flag)
+- **Tracking issue:** [reel#19](https://github.com/datahelix-platform/reel/issues/19) (implement the hold; contract: `../turn-contract.md` Amendment 1)
 - **Related:** ADR-0001 (instruction-path model), ADR-0002 (as-of watermark), Aperture ADR-0009 (dry-run validation), Aperture ADR-0020 (provenance events); `instruction-path-model.md` §6
 
 > **Migrated from Aperture ADR-0025 (2026-06-22)** on the data-story-engine split
@@ -125,4 +125,26 @@ commit `1b050e6`): points 1 and 3 are implemented; the HTTP response returns `tu
 `suspended_turn_ids` and the full recomputed `turns`. **Point 2 is not**: a recomputed proposal
 replaces the old turn with no comparison and no flag. Tracked in [reel#19](https://github.com/datahelix-platform/reel/issues/19). The append-only
 edit-history log (Decision, second layer) remains unbuilt (delta D3).
+
+**What "flagged" means (2026-11-10, labadorf): held for review.** A downstream step whose
+QuerySpec changed comes back as a proposal **awaiting the user's confirmation**. It is not applied
+or run, and it carries its `previous_query_spec` so a UI can show the difference. The response
+lists these steps in `held_turn_ids` (drafted as `changed_turn_ids`; named on 2026-11-17),
+beside `suspended_turn_ids`. This is a change to the turn
+contract (ADR-0008 §3; Mosaic ADR-0010 item 7), so it is recorded as **Amendment 1** of
+[`../turn-contract.md`](../turn-contract.md), which also fixes how a held step affects the steps
+after it. The Reel side is [reel#19](https://github.com/datahelix-platform/reel/issues/19). A user
+sees a held step only after Mosaic passes the fields through its relay and GraphQL
+`ConverseResult`, and Aperture's conversational panel (Aperture ADR-0039) renders them with a
+confirm action. Both follow-ups start after the amendment merges.
+
+**Amendment 1's open questions decided (2026-11-17, labadorf).** The contract lives in Reel at
+[`../turn-contract.md`](../turn-contract.md). Steps after a held step are re-asked against the
+held step's new spec and are held themselves if they changed; the applied draft ends at the first
+held turn; confirmation is in order (client-side, "confirm all" allowed); a held step is rejected
+by editing it; a request whose planning base contains a held turn gets a 400. Suspending
+everything after a held step, and re-asking against the last applied spec, were considered and
+rejected. v1 has no restore-previous ("keep the old meaning") action; one can be added later as an
+additive amendment. The response field is `held_turn_ids`. The reasoning is in the contract's
+*Decisions of 2026-11-17* section.
 
