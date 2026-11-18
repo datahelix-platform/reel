@@ -148,3 +148,9 @@ rejected. v1 has no restore-previous ("keep the old meaning") action; one can be
 additive amendment. The response field is `held_turn_ids`. The reasoning is in the contract's
 *Decisions of 2026-11-17* section.
 
+**As built, Reel side (reel#19):** point 2 is implemented in `edit_turn`
+(`src/reel/story/conversation.py`) and `/turn` (`src/reel/serve/http.py`) per Amendment 1. Held
+turns carry `held_for_review` / `previous_query_spec`, the response carries `held_turn_ids`,
+and a request that would plan on top of a held turn answers 400. Tests:
+`tests/test_held_for_review.py` (no model calls).
+
