@@ -9,6 +9,8 @@
 > **Names updated 2026-09-11:** Hippo → **Mosaic** (Mosaic ADR-0004), BASS/drylims → **DataHelix**;
 > `hippoSchema`-style data-contract identifiers keep their spelling. Dated **2026-09 status**
 > notes mark where the platform has since moved; see [`platform-alignment.md`](./platform-alignment.md).
+> **2026-11-20:** platform ADR-0007 retired that carve-out. Since Mosaic v0.16.0 these identifiers are
+> `mosaicSchema` / `mosaicEntityType`, `mosaic_core` and `mosaic_*`.
 
 **Status:** 🟠 Working design (2026-06-17, migrated 2026-06-22, platform state refreshed
 2026-09-11). The formal model **underneath**

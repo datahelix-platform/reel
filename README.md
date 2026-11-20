@@ -55,7 +55,7 @@ the joining interface live in the DataHelix platform repo:
 | | |
 |---|---|
 | **Platform repo** | [`datahelix-platform/datahelix`](https://github.com/datahelix-platform/datahelix) — Reel is mounted there as the `reel/` submodule, alongside Mosaic and Aperture. |
-| **Domain graph runtime** | **Mosaic** (formerly Hippo, Mosaic ADR-0004) — [`datahelix-platform/mosaic`](https://github.com/datahelix-platform/mosaic). Hosts the MCP boundary (Mosaic ADR-0009) that validates/executes QuerySpecs and the validating relay (ADR-0010) that drives a planner such as Exon/Reel. Data-contract identifiers (`hippoSchema`, `hippo_core`) keep their historical spelling. |
+| **Domain graph runtime** | **Mosaic** (formerly Hippo, Mosaic ADR-0004) — [`datahelix-platform/mosaic`](https://github.com/datahelix-platform/mosaic). Hosts the MCP boundary (Mosaic ADR-0009) that validates/executes QuerySpecs and the validating relay (ADR-0010) that drives a planner such as Exon/Reel. Its data-contract identifiers (`mosaicSchema`, `mosaic_core`) were renamed from `hippo*` in Mosaic v0.16.0 (platform ADR-0007). |
 | **Query artifact** | **QuerySpec** — Aperture ADR-0035 defines it; Mosaic ADR-0009 validates it; Reel composes instances (ADR-0006). |
 | **Renderer** | **Aperture** — [`datahelix-platform/aperture`](https://github.com/datahelix-platform/aperture), the config-driven portal (React + Vite SPA); consumes View Contract instances; reaches a planner only through Mosaic. |
 | **Packaging** | `datahelix-reel` distribution, `import reel`, `src/reel/` (platform ADR-0002). |
