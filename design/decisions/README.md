@@ -35,8 +35,10 @@ whose **Outcome** section records the execution — no separate runbook landed).
 and the graph runtime was Hippo. On 2026-09-11 their prose was updated to **DataHelix** and
 **Mosaic** (Mosaic ADR-0004) and their cross-references re-pointed (the platform's split ADR is
 **0003**, not 0001 — platform ADR-0001 is now the certified-frontier ledger). Data-contract
-identifiers (`hippoSchema`, `hippo_core`, `hippo_*` annotation keys) deliberately keep their
-spelling, matching Mosaic's own carve-out. Each migrated ADR carries a dated **Status update**
+identifiers (`hippoSchema`, `hippo_core`, `hippo_*` annotation keys) deliberately kept their
+spelling, matching Mosaic's own carve-out at the time. Platform ADR-0007 later retired that
+carve-out: Mosaic v0.16.0 renamed them to `mosaicSchema`, `mosaic_core` and `mosaic_*`. The
+ADRs' old spellings are left as written, with a dated note. Each migrated ADR carries a dated **Status update**
 section noting what the platform has since decided or shipped; their Decision sections are
 unchanged.
 

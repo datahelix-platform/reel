@@ -8,6 +8,8 @@
 > portal's decisions are qualified **"Aperture ADR-NNNN"**.
 > **Names updated 2026-09-11:** Hippo → **Mosaic** (Mosaic ADR-0004), BASS → **DataHelix**;
 > `hippoSchema` keeps its spelling as a data-contract identifier.
+> **2026-11-20:** platform ADR-0007 retired that carve-out. Since Mosaic v0.16.0 these identifiers are
+> `mosaicSchema` / `mosaicEntityType`, `mosaic_core` and `mosaic_*`.
 
 **Status:** 🟠 Working design (2026-06-17, migrated 2026-06-22, probe status added 2026-09-11).
 The simplest concrete realization
@@ -74,7 +76,7 @@ bind-measured-value · render-as-primitive (summary, histogram, bar, table, valu
 3. **Schema grounding for the LLM** — the introspected LinkML types/slots/enums/descriptions are
    the model's context for NL→typed-query (so "PTSD, MDD, or controls" → `diagnosis IN [...]`,
    "genotypes A and B" → the genotype slot). This is Aperture ADR-0005 ("the schema *is* the agent's
-   context") + the `hippoSchema` introspection resolver, finally exercised by a consumer.
+   context") + the `mosaicSchema` (formerly `hippoSchema`) introspection resolver, finally exercised by a consumer.
 4. **A view-primitive set** (the noun-catalog, Aperture ADR-0010): summary/stat card, histogram, bar,
    table, value-list.
 5. **Dry-run validation** of the LLM's translated query/view-spec before it runs — the keystone

@@ -23,8 +23,11 @@ notation, not relative paths.
 - **DataHelix** — the platform (formerly BASS; the integration repo was `drylims`, now
   `datahelix-platform/datahelix`). Never write BASS/drylims in new text.
 - **Mosaic** — the LinkML runtime / structured domain graph (formerly Hippo, Mosaic ADR-0004;
-  dist `datahelix-mosaic`, `import mosaic`). Write "Mosaic" in prose; **keep** data-contract
-  identifiers as spelled: `hippoSchema`, `hippo_core`, `hippo_*` annotation keys, `X-Hippo-Actor`.
+  dist `datahelix-mosaic`, `import mosaic`). Write "Mosaic" in prose. The data-contract
+  identifiers were renamed in Mosaic v0.16.0 (platform ADR-0007): the GraphQL root fields are
+  `mosaicSchema` / `mosaicEntityType`, the core schema module `mosaic_core`, annotation keys
+  `mosaic_*`, and the actor header `X-DataHelix-Actor`. Don't write the old `hippo*` spellings
+  in new text.
 - **Aperture** — the rendering portal (React + Vite SPA); owner of the **QuerySpec** artifact
   (Aperture ADR-0035).
 - **Reel** — ratified name (platform ADR-0003), no longer a codename.

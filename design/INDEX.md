@@ -22,7 +22,8 @@ rendering portal (DataHelix platform
 Aperture ADR-0022–0026 and **renumbered** on extraction; the originals are `Superseded by` these
 in Aperture with forward pointers. The design set was written when the platform was **BASS**
 and the graph runtime **Hippo**; it now reads **DataHelix** and **Mosaic** (Mosaic ADR-0004),
-with data-contract identifiers (`hippoSchema`, `hippo_core`) unchanged.
+with data-contract identifiers (`hippoSchema`, `hippo_core`) unchanged at the time. Those were
+renamed in Mosaic v0.16.0 (platform ADR-0007): `mosaicSchema`, `mosaic_core`.
 
 ## Document Map
 

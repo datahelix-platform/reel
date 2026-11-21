@@ -11,7 +11,7 @@ Log in [`INDEX.md`](./INDEX.md).
 | Reel docs said | Now | Source |
 |---|---|---|
 | **BASS** platform; `drylims` integration repo | **DataHelix**; `datahelix-platform/datahelix` | DataHelix rebrand 2026-07-07 (datahelix PR #43) |
-| **Hippo** (graph runtime) | **Mosaic** — distributed as `datahelix-mosaic`, imported as `mosaic`. Data-contract identifiers (`hippoSchema`, `hippo_core`, `hippo_*` annotations, `X-Hippo-Actor`) deliberately unchanged. | Mosaic ADR-0004 |
+| **Hippo** (graph runtime) | **Mosaic** — distributed as `datahelix-mosaic`, imported as `mosaic`. Data-contract identifiers were kept as `hippo*` until Mosaic v0.16.0, which renamed them: `mosaicSchema`, `mosaic_core`, `mosaic_*` annotations, and the platform-owned `X-DataHelix-Actor` header. | Mosaic ADR-0004; platform ADR-0007 |
 | "Reel" is a **provisional codename** (Strand, Loom, Lumen, Cadence) | **Ratified** — Reel is the component's real name | platform ADR-0003 ("Name" note) |
 | Boundary decision `drylims:platform/design/decisions/ADR-0001` | **platform ADR-0003** (platform ADR-0001 is now the certified-frontier ledger; 0002 is the metapackage) | `datahelix:platform/design/INDEX.md` |
 | Runbook `proposals/reel-split.md` | Never landed; the split's execution is recorded in platform ADR-0003's **Outcome** section | same |
@@ -38,7 +38,7 @@ Log in [`INDEX.md`](./INDEX.md).
 |---|---|---|---|
 | 1 | Serializable selection/cohort object, pivotable | "core-loop query-state, made central" (unbuilt) | **`QuerySpec`** (Aperture ADR-0035; Mosaic ADR-0009) — Reel ADR-0006 |
 | 2 | Relationship-existence filters with predicates; group-by + count | ⚠️ gaps in Hippo's GraphQL (equality + AND/OR + offset + FTS) | **Closed.** Mosaic ADR-0006 typed filters incl. relationship predicates (`RelatedCondition`); ADR-0007 counts / `facetCounts` / min-max / `order_by`; exposed as MCP tools (`count_query_spec`, `facet_query_spec`, `field_range_query_spec`, `search_query_spec`) |
-| 3 | Schema grounding for the LLM | `hippoSchema` introspection resolver | `mosaic://schema` + **`mosaic://capabilities`** (server-derived manifest: per-field legal ops, `enum_values`, predicate flags, aggregatable/orderable/searchable) + the `construct-query-spec` prompt |
+| 3 | Schema grounding for the LLM | `hippoSchema` introspection resolver (now `mosaicSchema`, platform ADR-0007) | `mosaic://schema` + **`mosaic://capabilities`** (server-derived manifest: per-field legal ops, `enum_values`, predicate flags, aggregatable/orderable/searchable) + the `construct-query-spec` prompt |
 | 4 | View-primitive set (noun-catalog) | Aperture ADR-0010 | Unchanged (`Proposed`); becomes the View Contract's primitive catalog |
 | 5 | Dry-run validation of the LLM's output | "the keystone guardrail" (unbuilt) | **`validate_query_spec`**, total and introspection-driven, with per-criterion coded errors; re-run in-process by Mosaic's relay on every turn (Mosaic ADR-0010 term 2) |
 

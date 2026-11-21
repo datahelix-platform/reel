@@ -1,4 +1,4 @@
-"""Live schema grounding: hippoSchema + the capability manifest, fetched fresh every run.
+"""Live schema grounding: mosaicSchema + the capability manifest, fetched fresh every run.
 
 Never cache these across sessions and never assume field names from memory. mosaic#149 (now
 fixed, PR#150) was exactly this hazard: a plausible-looking guess silently produced a
@@ -25,7 +25,7 @@ def graphql_query(endpoint: str, query: str) -> dict:
 
 
 MOSAIC_SCHEMA_QUERY = """
-{ hippoSchema { name accessorName description fields { name kind range role required
+{ mosaicSchema { name accessorName description fields { name kind range role required
   multivalued identifier description targetEntityType enumName enumValues }
   relationships { field targetEntityType } } }
 """
@@ -36,12 +36,12 @@ def fetch_mosaic_schema(endpoint: str) -> dict:
 
     The source of truth for field names. Since mosaic#149/PR#150 the server accepts both the
     slot name and its camelCase spelling, but names are still resolved from here rather than
-    guessed -- and hippoSchema also carries the kind/multivalued metadata the validator needs
+    guessed -- and mosaicSchema also carries the kind/multivalued metadata the validator needs
     to reject unfilterable fields before execution.
     """
     data = graphql_query(endpoint, MOSAIC_SCHEMA_QUERY)
     schema = {}
-    for entity in data["hippoSchema"]:
+    for entity in data["mosaicSchema"]:
         schema[entity["name"]] = {
             "accessor_name": entity["accessorName"],
             "fields": {f["name"]: f for f in entity["fields"]},
