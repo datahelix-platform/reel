@@ -81,7 +81,7 @@ proposal in `turns`, not only `turn` (Mosaic ADR-0010 term 2).
 
 **Current draft.** The draft at the end of a turn list is the `query_spec` of its last `proposal`.
 On an append, the request's `query_spec` must equal the draft derived from `turns`. If they
-differ, the endpoint answers 400 (Decision 9).
+differ, the endpoint answers 400 (Decision 9). *Amended 2026-11-23: see Amendment 2.*
 
 ## Amendment 1 (2026-11-10): changed downstream steps are held for review
 
@@ -226,3 +226,61 @@ Decided by labadorf on 2026-11-17. Each item keeps the question as it was asked,
    response field after what it lists? *Decided:* the response field is **`held_turn_ids`**.
    The per-turn fields stay `held_for_review` and `previous_query_spec`. No peer had shipped
    `changed_turn_ids`, so the rename needs no compatibility note.
+
+## Amendment 2 (2026-11-23): an append plans from the reader's edited draft
+
+**Decided by** labadorf, 2026-11-23, while building
+[aperture#89](https://github.com/datahelix-platform/aperture/issues/89) (umbrella
+[datahelix#113](https://github.com/datahelix-platform/datahelix/issues/113)).
+**Amends** Decision 9 (the append-time equality rule under *Current draft* above). Decision 9's
+text is kept; this section replaces its rule.
+
+### Why
+
+Decision 9 assumed Aperture's builder is locked while a conversation is active, so the
+request's `query_spec` could only ever equal the draft the turns derive. With aperture#89 the
+reader can change the draft between turns: a proposal's `columns` load into the result table,
+the reader adds or removes columns there, and the next turn sends the draft with the reader's
+columns. Under Decision 9 that is a 400. Decision 9 itself named the unlock path: pass the
+request's `query_spec` through as `append_turn`'s `existing_query_spec` override.
+
+### What it decides
+
+On an **append** (no `edit_turn_id`), in this order:
+
+1. A planning base that contains a held turn is still a 400 (Amendment 1).
+2. `query_spec` must be `null` exactly when `turns` derive no draft. A `null` spec while the
+   turns derive one, or a spec with no draft to edit, is a 400. Neither is an edit a client
+   makes.
+3. A non-null `query_spec` must pass a **request-shape guard**, or the answer is a 400 naming
+   the first problem:
+   - `v` is the integer `1` (not `true`, not `1.0`);
+   - `anchor` is a string;
+   - `mode` is `"AND"` or `"OR"`;
+   - `criteria` is a list;
+   - `columns`, if present, is a list of objects with a `path` that is a non-empty list of non-empty strings and an
+     optional string `mode`, and no other keys.
+4. The request's `query_spec` is the planner's starting draft (`existing_query_spec`). It no
+   longer has to equal the turns-derived draft. When the two differ, the request wins: it is
+   the reader's current draft.
+
+An **edit** (`edit_turn_id` set) is unchanged. It rewinds to a past point and ignores the
+top-level `query_spec`.
+
+### The guard is not query validation
+
+Reel carries no query validator of its own (ADR-0007, decision 1). The guard checks only the
+envelope a planner reads. It does not check slots, operators, values, path segments, hop counts
+or column modes against a schema. Those stay Mosaic's: its relay re-validates every proposal in
+Reel's response before a client sees it (Mosaic ADR-0010 term 2), so an edited draft can shape
+what the planner proposes but cannot make anything unvalidated execute. The guard exists so an
+envelope no client would send fails loudly at Reel instead of reaching the model as context.
+
+### Compatibility
+
+A request that satisfied Decision 9 (the spec equals the derived draft, which Mosaic already
+validated) passes the guard unchanged. The only requests whose answer changes are edited drafts,
+which were 400 and are now planned from. Mosaic's relay forwards `query_spec` without parsing it,
+so it needs no change. Aperture sends an edited draft from aperture#89
+([aperture#103](https://github.com/datahelix-platform/aperture/pull/103)), which needs a Reel
+release carrying this amendment.

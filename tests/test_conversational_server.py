@@ -2,8 +2,9 @@
 request_turn exactly as test_conversational_orchestrator.py does -- this
 file asks a different question again: given the orchestration layer
 works (already proven), does the HTTP translation match Decision 8's JSON
-shape exactly, and does Decision 9's query_spec/turns-agreement check
-actually fire when it should?
+shape exactly, and does Decision 9's query_spec handling (as amended
+2026-11-23, turn-contract.md Amendment 2: an edited draft passes through,
+a malformed one is a 400) behave as stated?
 """
 import sys
 from pathlib import Path
@@ -33,8 +34,10 @@ def _clarification(message="which one?"):
 class _ScriptedModel:
     def __init__(self, *attempts):
         self.queue = list(attempts)
+        self.seen_query_specs = []
 
     def __call__(self, utterance, capabilities, *, existing_query_spec=None, prior_turns=(), **kw):
+        self.seen_query_specs.append(existing_query_spec)
         return self.queue.pop(0)
 
 
@@ -72,20 +75,78 @@ class TestAppend:
         assert r2.status_code == 200
         assert r2.json()["turn"]["query_spec"] == SPEC_B
 
-    def test_mismatched_query_spec_is_rejected_400(self, client):
-        # Decision 9: for now, this must never legitimately happen (the
-        # point-and-click builder is locked while chatting) -- a mismatch
-        # here means a bug on the caller's side, not a real divergence to
-        # resolve.
-        client.model.queue.append(_proposal(SPEC_A, "t1"))
-        r1 = client.post("/turn", json={"utterance": "first", "query_spec": None, "turns": []})
-        t1 = r1.json()["turn"]
+    def test_turns_derived_query_spec_is_accepted_and_planned_from(self, client):
+        client.model.queue.extend([_proposal(SPEC_A, "t1"), _proposal(SPEC_B, "t2")])
+        t1 = client.post("/turn", json={"utterance": "first", "query_spec": None, "turns": []}).json()["turn"]
 
-        r2 = client.post("/turn", json={
-            "utterance": "second", "query_spec": SPEC_C, "turns": [t1],  # wrong -- should be SPEC_A
-        })
+        r2 = client.post("/turn", json={"utterance": "second", "query_spec": SPEC_A, "turns": [t1]})
+        assert r2.status_code == 200
+        assert client.model.seen_query_specs[-1] == SPEC_A
+
+    def test_edited_query_spec_is_accepted_and_reaches_the_planner(self, client):
+        # Amendment 2: the reader edited the draft (aperture#89 -- the
+        # columns they chose), so the wire spec differs from what the turns
+        # derive. It is the planner's starting draft, not a 400.
+        client.model.queue.extend([_proposal(SPEC_A, "t1"), _proposal(SPEC_B, "t2")])
+        t1 = client.post("/turn", json={"utterance": "first", "query_spec": None, "turns": []}).json()["turn"]
+
+        edited = {**SPEC_A, "columns": [{"path": ["name"]}, {"path": ["donor", "samples", "id"], "mode": "explode"}]}
+        r2 = client.post("/turn", json={"utterance": "second", "query_spec": edited, "turns": [t1]})
+        assert r2.status_code == 200
+        assert r2.json()["turn"]["query_spec"] == SPEC_B
+        assert client.model.seen_query_specs[-1] == edited
+
+    def test_edited_criteria_are_accepted_and_reach_the_planner(self, client):
+        # An edit is any difference from the turns-derived draft, not only
+        # columns: here the reader's draft changed a criterion's value.
+        client.model.queue.extend([_proposal(SPEC_A, "t1"), _proposal(SPEC_B, "t2")])
+        t1 = client.post("/turn", json={"utterance": "first", "query_spec": None, "turns": []}).json()["turn"]
+
+        edited = {**SPEC_A, "mode": "OR", "criteria": [{"kind": "field", "slot": "a", "op": "eq", "value": 99}]}
+        assert edited != SPEC_A
+        r2 = client.post("/turn", json={"utterance": "second", "query_spec": edited, "turns": [t1]})
+        assert r2.status_code == 200
+        assert client.model.seen_query_specs[-1] == edited
+
+    @pytest.mark.parametrize("malformed, problem", [
+        ({**SPEC_A, "v": 2}, "'v'"),
+        ({**SPEC_A, "v": True}, "'v'"),
+        ({**SPEC_A, "v": 1.0}, "'v'"),
+        ({**SPEC_A, "v": "1"}, "'v'"),
+        ({k: v for k, v in SPEC_A.items() if k != "anchor"}, "'anchor'"),
+        ({**SPEC_A, "anchor": 7}, "'anchor'"),
+        ({**SPEC_A, "mode": "XOR"}, "'mode'"),
+        ({**SPEC_A, "criteria": {"slot": "a"}}, "'criteria'"),
+        ({**SPEC_A, "columns": {"path": ["a"]}}, "'columns'"),
+        ({**SPEC_A, "columns": [{"path": []}]}, "'columns[0].path'"),
+        ({**SPEC_A, "columns": [{"path": ["a", 1]}]}, "'columns[0].path'"),
+        ({**SPEC_A, "columns": [{"path": [""]}]}, "'columns[0].path'"),
+        ({**SPEC_A, "columns": [{"path": ["a", ""]}]}, "'columns[0].path'"),
+        ({**SPEC_A, "columns": [{"slot": "a"}]}, "'columns[0]'"),
+        ({**SPEC_A, "columns": [{"path": ["a"], "sql": "drop"}]}, "'columns[0]'"),
+        ({**SPEC_A, "columns": [{"path": ["a", "b"], "mode": 3}]}, "'columns[0].mode'"),
+    ])
+    def test_malformed_query_spec_is_rejected_400(self, client, malformed, problem):
+        client.model.queue.append(_proposal(SPEC_A, "t1"))
+        t1 = client.post("/turn", json={"utterance": "first", "query_spec": None, "turns": []}).json()["turn"]
+
+        r2 = client.post("/turn", json={"utterance": "second", "query_spec": malformed, "turns": [t1]})
         assert r2.status_code == 400
-        assert "does not match" in r2.json()["detail"]
+        assert "malformed" in r2.json()["detail"] and problem in r2.json()["detail"]
+        assert len(client.model.seen_query_specs) == 1  # the planner was never asked
+
+    def test_null_query_spec_while_turns_derive_a_draft_is_rejected_400(self, client):
+        client.model.queue.append(_proposal(SPEC_A, "t1"))
+        t1 = client.post("/turn", json={"utterance": "first", "query_spec": None, "turns": []}).json()["turn"]
+
+        r2 = client.post("/turn", json={"utterance": "second", "query_spec": None, "turns": [t1]})
+        assert r2.status_code == 400
+        assert "must be null exactly when" in r2.json()["detail"]
+
+    def test_query_spec_with_no_draft_to_edit_is_rejected_400(self, client):
+        r = client.post("/turn", json={"utterance": "first", "query_spec": SPEC_A, "turns": []})
+        assert r.status_code == 400
+        assert "must be null exactly when" in r.json()["detail"]
 
     def test_a_system_failure_is_a_502_not_a_conversational_status(self, client, monkeypatch):
         monkeypatch.setattr("reel.story.conversation.MAX_ATTEMPTS", 1)
@@ -151,7 +212,7 @@ class TestEdit:
         assert "no turn" in r.json()["detail"]
 
     def test_edit_does_not_require_query_spec_to_match_current_state(self, client):
-        # Decision 9's equality check is append-only: an edit's redo step
+        # Decision 9's query_spec handling is append-only: an edit's redo step
         # rewinds to a PAST point (turns[:idx]), which the wire's
         # current-state field is never the relevant input for.
         client.model.queue.append(_proposal(SPEC_A, "t1"))
