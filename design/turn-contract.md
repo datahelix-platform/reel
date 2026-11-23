@@ -254,11 +254,11 @@ On an **append** (no `edit_turn_id`), in this order:
    makes.
 3. A non-null `query_spec` must pass a **request-shape guard**, or the answer is a 400 naming
    the first problem:
-   - `v` is `1`;
+   - `v` is the integer `1` (not `true`, not `1.0`);
    - `anchor` is a string;
    - `mode` is `"AND"` or `"OR"`;
    - `criteria` is a list;
-   - `columns`, if present, is a list of objects with a non-empty string-list `path` and an
+   - `columns`, if present, is a list of objects with a `path` that is a non-empty list of non-empty strings and an
      optional string `mode`, and no other keys.
 4. The request's `query_spec` is the planner's starting draft (`existing_query_spec`). It no
    longer has to equal the turns-derived draft. When the two differ, the request wins: it is

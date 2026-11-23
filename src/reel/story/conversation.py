@@ -274,7 +274,8 @@ def append_turn(
     endpoint) that has its own independently-tracked notion of "the
     current state" and needs it to win (the /turn append, which passes the
     reader's edited draft -- turn-contract.md Amendment 2); when omitted,
-    behavior is unchanged from before this parameter existed. `edit_turn`'s redo step has no equivalent override: it always
+    behavior is unchanged from before this parameter existed.
+    `edit_turn`'s redo step has no equivalent override: it always
     rewinds to a past point (`turns[:idx]`), which an override representing
     the *current* moment was never the right input for."""
     if existing_query_spec is _UNSET:

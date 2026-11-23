@@ -227,8 +227,9 @@ def _query_spec_shape_problem(spec: dict) -> str | None:
     -- and leaves slots, operators, paths and modes to Mosaic, which
     re-validates every proposal Reel returns. Returns the first problem,
     or None."""
-    if spec.get("v") != 1:
-        return "'v' must be 1"
+    v = spec.get("v")
+    if type(v) is not int or v != 1:  # not True, not 1.0
+        return "'v' must be the integer 1"
     if not isinstance(spec.get("anchor"), str):
         return "'anchor' must be a string"
     if spec.get("mode") not in ("AND", "OR"):
@@ -243,8 +244,12 @@ def _query_spec_shape_problem(spec: dict) -> str | None:
             if not isinstance(col, dict) or "path" not in col or not set(col) <= {"path", "mode"}:
                 return f"'columns[{i}]' must be an object with 'path' and an optional 'mode'"
             path = col["path"]
-            if not isinstance(path, list) or not path or not all(isinstance(p, str) for p in path):
-                return f"'columns[{i}].path' must be a non-empty list of strings"
+            if (
+                not isinstance(path, list)
+                or not path
+                or not all(isinstance(p, str) and p for p in path)
+            ):
+                return f"'columns[{i}].path' must be a non-empty list of non-empty strings"
             if "mode" in col and not isinstance(col["mode"], str):
                 return f"'columns[{i}].mode' must be a string"
     return None

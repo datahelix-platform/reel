@@ -96,8 +96,23 @@ class TestAppend:
         assert r2.json()["turn"]["query_spec"] == SPEC_B
         assert client.model.seen_query_specs[-1] == edited
 
+    def test_edited_criteria_are_accepted_and_reach_the_planner(self, client):
+        # An edit is any difference from the turns-derived draft, not only
+        # columns: here the reader's draft changed a criterion's value.
+        client.model.queue.extend([_proposal(SPEC_A, "t1"), _proposal(SPEC_B, "t2")])
+        t1 = client.post("/turn", json={"utterance": "first", "query_spec": None, "turns": []}).json()["turn"]
+
+        edited = {**SPEC_A, "mode": "OR", "criteria": [{"kind": "field", "slot": "a", "op": "eq", "value": 99}]}
+        assert edited != SPEC_A
+        r2 = client.post("/turn", json={"utterance": "second", "query_spec": edited, "turns": [t1]})
+        assert r2.status_code == 200
+        assert client.model.seen_query_specs[-1] == edited
+
     @pytest.mark.parametrize("malformed, problem", [
         ({**SPEC_A, "v": 2}, "'v'"),
+        ({**SPEC_A, "v": True}, "'v'"),
+        ({**SPEC_A, "v": 1.0}, "'v'"),
+        ({**SPEC_A, "v": "1"}, "'v'"),
         ({k: v for k, v in SPEC_A.items() if k != "anchor"}, "'anchor'"),
         ({**SPEC_A, "anchor": 7}, "'anchor'"),
         ({**SPEC_A, "mode": "XOR"}, "'mode'"),
@@ -105,6 +120,8 @@ class TestAppend:
         ({**SPEC_A, "columns": {"path": ["a"]}}, "'columns'"),
         ({**SPEC_A, "columns": [{"path": []}]}, "'columns[0].path'"),
         ({**SPEC_A, "columns": [{"path": ["a", 1]}]}, "'columns[0].path'"),
+        ({**SPEC_A, "columns": [{"path": [""]}]}, "'columns[0].path'"),
+        ({**SPEC_A, "columns": [{"path": ["a", ""]}]}, "'columns[0].path'"),
         ({**SPEC_A, "columns": [{"slot": "a"}]}, "'columns[0]'"),
         ({**SPEC_A, "columns": [{"path": ["a"], "sql": "drop"}]}, "'columns[0]'"),
         ({**SPEC_A, "columns": [{"path": ["a", "b"], "mode": 3}]}, "'columns[0].mode'"),
