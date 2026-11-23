@@ -169,33 +169,40 @@ def create_conversational_app(
                 held_turn_ids=held_turn_ids(new_turns),
             )
 
-        # Plain append: Decision 9 -- for now, Aperture's point-and-click
-        # QuerySpec builder is locked while a chat is active, so the
-        # wire's stated `query_spec` and what `turns` alone would derive
-        # must always agree. Asserting that (rather than silently trusting
-        # either) means nothing quietly goes stale if that lock is ever
-        # lifted without this endpoint being told -- see design.md
-        # Decision 9 for the unlock path (pass `req.query_spec` through as
-        # append_turn's `existing_query_spec` override instead of
-        # asserting equality here; no other code needs to change).
-        # Checked before the draft agreement below: with a held turn in the
-        # history there is no agreed draft to compare against (Amendment 1).
+        # Plain append: Decision 9, as amended 2026-11-23 (turn-contract.md
+        # Amendment 2). The wire's `query_spec` is the reader's current
+        # draft and may carry edits the turns never proposed (aperture#89:
+        # the columns the reader chose), so it is passed through as
+        # append_turn's `existing_query_spec` override rather than asserted
+        # equal to the turns-derived draft. Mosaic re-validates every
+        # proposal this returns (ADR-0007), so the planner only *reads* it.
+        # Checked first: with a held turn in the history there is no agreed
+        # draft to plan from (Amendment 1).
         try:
             _reject_held_base(turns)
         except HeldTurnInBase as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         derived = _current_query_spec(turns)
-        if req.query_spec != derived:
+        if (req.query_spec is None) != (derived is None):
+            # A null spec while the turns derive a draft (or a spec with no
+            # draft to edit) is a caller bug, not an edit: still a 400.
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "'query_spec' does not match the state derived from 'turns' -- "
-                    "Aperture's point-and-click builder is expected to be locked while "
-                    "chatting (design.md Decision 9), so these should never disagree. "
+                    "'query_spec' must be null exactly when 'turns' derive no draft "
+                    "(turn-contract.md Amendment 2). "
                     f"given={req.query_spec!r} derived={derived!r}"
                 ),
             )
+        if req.query_spec is not None:
+            problem = _query_spec_shape_problem(req.query_spec)
+            if problem:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"'query_spec' is malformed: {problem} (turn-contract.md Amendment 2)",
+                )
+            kw["existing_query_spec"] = req.query_spec
 
         try:
             new_turns, new_turn = append_turn(turns, req.utterance, capabilities, **kw)
@@ -210,6 +217,37 @@ def create_conversational_app(
         )
 
     return app
+
+
+def _query_spec_shape_problem(spec: dict) -> str | None:
+    """A request-shape guard on an appended turn's `query_spec`, not query
+    validation (turn-contract.md Amendment 2). Reel carries no query
+    validator (ADR-0007): it checks only the envelope a planner can read
+    -- `v`, `anchor`, `mode`, `criteria`, and the optional `columns` list
+    -- and leaves slots, operators, paths and modes to Mosaic, which
+    re-validates every proposal Reel returns. Returns the first problem,
+    or None."""
+    if spec.get("v") != 1:
+        return "'v' must be 1"
+    if not isinstance(spec.get("anchor"), str):
+        return "'anchor' must be a string"
+    if spec.get("mode") not in ("AND", "OR"):
+        return "'mode' must be 'AND' or 'OR'"
+    if not isinstance(spec.get("criteria"), list):
+        return "'criteria' must be a list"
+    if "columns" in spec:
+        columns = spec["columns"]
+        if not isinstance(columns, list):
+            return "'columns' must be a list"
+        for i, col in enumerate(columns):
+            if not isinstance(col, dict) or "path" not in col or not set(col) <= {"path", "mode"}:
+                return f"'columns[{i}]' must be an object with 'path' and an optional 'mode'"
+            path = col["path"]
+            if not isinstance(path, list) or not path or not all(isinstance(p, str) for p in path):
+                return f"'columns[{i}].path' must be a non-empty list of strings"
+            if "mode" in col and not isinstance(col["mode"], str):
+                return f"'columns[{i}].mode' must be a string"
+    return None
 
 
 def _log_turn_failure(kind: str, req: TurnRequest, exc: RuntimeError, model: str | None) -> None:
