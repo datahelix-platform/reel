@@ -1,5 +1,59 @@
 # Changelog
 
+## v0.3.0 — 2026-11-23 (the `/turn` append plans from the reader's edited draft, behind a request-shape guard; pairs with Aperture v0.8.0)
+
+Not breaking: every request v0.2.0 accepted is still accepted with the same
+answer. The difference is that an append whose `query_spec` differs from the
+draft the `turns` derive is now planned from, where v0.2.0 answered 400.
+**Aperture v0.8.0 needs this release.** Its conversational panel sends the
+reader's result-table columns back on every refinement turn, and Reel v0.2.0
+answers 400 to those.
+
+### Changed
+
+- **A `/turn` append plans from the request's `query_spec`** (#26; turn
+  contract Amendment 2, which amends Decision 9). The request's draft goes to
+  the planner as `existing_query_spec`, and it no longer has to equal the
+  draft derived from `turns`. This is the unlock path Decision 9 itself named,
+  and it lets the reader edit a draft between turns (aperture#89: the columns
+  they chose). Edits (`edit_turn_id`) are unchanged.
+  - `query_spec` must be `null` exactly when the turns derive no draft.
+    Otherwise the answer is 400.
+  - A held turn in the planning base is still a 400 (Amendment 1), and it is
+    checked first.
+
+### Added
+
+- **A request-shape guard on an appended `query_spec`** (#26). The answer is
+  400, naming the first problem, unless:
+  - `v` is the integer `1`;
+  - `anchor` is a string;
+  - `mode` is `AND` or `OR`;
+  - `criteria` is a list;
+  - `columns`, if present, is a list of `{path, mode?}`, where `path` is a
+    non-empty list of non-empty strings, `mode` is a string, and there are no
+    other keys.
+
+  This is **not query validation** (Reel ADR-0007). Reel checks only the
+  envelope the planner reads. Mosaic's relay still re-validates every proposal
+  Reel returns, so an edited draft can shape what is proposed but can't make
+  anything unvalidated run.
+
+### Docs
+
+- `design/turn-contract.md` **Amendment 2 (2026-11-23)**. Decision 9's text
+  is kept, with a pointer to the amendment. `design/INDEX.md` notes it.
+
+### Upgrading
+
+- No configuration change. Deploy Reel v0.3.0 **before or together with
+  Aperture v0.8.0**. Aperture v0.8.0 against Reel ≤ v0.2.0 gets a 400 on
+  every refinement turn once the result table holds a traversal column.
+- Still needs Mosaic v0.16.0 or later, as in v0.2.0. Mosaic's relay forwards
+  `query_spec` unchanged, so it needs no change.
+- Pull `ghcr.io/datahelix-platform/reel:0.3.0`, pinned by the digest in the
+  release's `image-digest.json`.
+
 ## v0.2.0 — 2026-11-21 (BREAKING: needs Mosaic ≥ v0.16.0 for `mosaicSchema`; held-for-review turns, redacted failure logging, transient-error retries)
 
 **Breaking release.** Reel now reads Mosaic's schema through the renamed

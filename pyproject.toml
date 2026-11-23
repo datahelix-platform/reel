@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "datahelix-reel"
-version = "0.2.0"
+version = "0.3.0"
 description = "Reel: the data-story engine. Plans a typed QuerySpec from natural language, conversationally, behind Mosaic's validating relay."
 readme = "README.md"
 requires-python = ">=3.11"
